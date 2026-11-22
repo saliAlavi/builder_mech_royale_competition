@@ -299,6 +299,27 @@ func (b *Bot) strategicGoal() Vec3 {
 	if b.goalOK && valid(b.goal) && b.goalNext == c {
 		if id := b.nav.nearestOK(b.goal[0], b.goal[1], b.goal[2], 4, true); id >= 0 {
 			bestID, bestS = id, score(id)+0.25
+		} else if id := b.nav.nearestOK(b.goal[0], b.goal[1], b.goal[2], 3, false); id >= 0 && P["roof_goal"] > 0 && b.roofInterior(id) {
+			bestID, bestS = id, score(id)+0.25+P["roof_goal"]
+		}
+	}
+	if rb := P["roof_goal"]; rb > 0 && !b.recentDanger() {
+		// interior spots on tall roofs: invisible to ground mechs near the building
+		for k := 0; k < 60; k++ {
+			a := b.rng.Float64() * 2 * math.Pi
+			rr := math.Sqrt(b.rng.Float64()) * R
+			x, y := c[0]+math.Cos(a)*rr, c[1]+math.Sin(a)*rr
+			id := b.nav.nearestOK(x, y, 1e4, 4, false)
+			if id < 0 || b.nav.Comp[id] == b.nav.MainComp || !b.roofInterior(id) {
+				continue
+			}
+			p := b.nav.pos(id)
+			if !valid(p) {
+				continue
+			}
+			if s := score(id) + rb; s > bestS {
+				bestS, bestID = s, id
+			}
 		}
 	}
 	for k := 0; k < 70; k++ {
@@ -329,6 +350,24 @@ func (b *Bot) strategicGoal() Vec3 {
 	b.goal = b.nav.pos(bestID)
 	b.goalOK = true
 	return b.goal
+}
+
+// roofInterior: node is on a roof >= roof_min_h above the terrain with roof all around (>= 7 m to the edge).
+func (b *Bot) roofInterior(id int) bool {
+	p := b.nav.pos(id)
+	h := p[2]
+	if h-b.w.TerrainAt(p[0], p[1]) < P["roof_min_h"] {
+		return false
+	}
+	for k := 0; k < 12; k++ {
+		a := float64(k) / 12 * 2 * math.Pi
+		for _, r := range []float64{4, 7} {
+			if math.Abs(b.w.SurfAt(p[0]+math.Cos(a)*r, p[1]+math.Sin(a)*r)-h) > 1.5 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // lootGoal: worthwhile weapon / cube / supply drop nearby.
@@ -387,7 +426,7 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 			break
 		}
 		d := hdist(dr.Pos, b.pos)
-		if d > 160 || dr.LandsIn > d/9+3 {
+		if d > P["drop_m"] || dr.LandsIn > d/9+3 {
 			continue
 		}
 		if dr.Holder != nil && int(*dr.Holder) != b.me.ID {
@@ -395,7 +434,7 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 		}
 		contested := false
 		for _, t := range b.enemies {
-			if b.t-t.LastSeen < 10 && hdist(t.Pos, dr.Pos) < 90 {
+			if b.t-t.LastSeen < 10 && hdist(t.Pos, dr.Pos) < P["drop_contest_m"] {
 				contested = true
 			}
 		}

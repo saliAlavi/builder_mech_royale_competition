@@ -662,7 +662,14 @@ func (b *Bot) pickTarget() *Track {
 			continue
 		}
 		d := dist3(t.Pos, b.pos)
-		s := t.HP/b.myDPS(d) + d/60
+		hp := t.HP
+		if P["rear_pref"] > 0 {
+			// facing away from us: our hits land on its rear armour (x rear_mult)
+			if math.Abs(wrap(t.Aim[0]-bearing(t.Pos, b.pos))) > math.Pi/2 {
+				hp /= b.mechf("rear_mult", 1.5)
+			}
+		}
+		s := hp/b.myDPS(d) + d/60
 		if !t.LOS {
 			s += P["nolos_pen"]
 		}
