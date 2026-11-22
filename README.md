@@ -20,30 +20,36 @@ Entry for the Builders Buildathon **Mech Royale** track. The bot is a single sta
 
 ## Strategy
 
-Scoring is placement only, so the bot plays for survival:
+Score is `16 - place`, i.e. the number of mechs that die before us. In practice the 15 house bots are one squad
+that escalates: the weakest hunts first, more join as they are thinned out, all of them late. So the bot plays a
+series of duels and tries to win each one cheaply:
 
-1. **Zone first.** It tracks the shrinking circle (both "phase start" and "instantaneous" readings of `zone`) and always heads for a safe spot inside the *next* circle with margin, hurrying/boosting only when the required speed demands it. Navigation is a 2 m grid over the standable surface with mech clearance, step/slope rules, free drops and jump/jet climb edges (so the stadium field and roofs are reachable), but roofs/stadium stands and climbs are expensive and climbs are disabled near enemies.
-2. **Covered positions.** Out of combat it picks goal spots with building cover, inside the next circle, away from recently seen enemies; the torso sweeps toward recent sound/damage bearings and does a 360° look at spawn to find loot.
-3. **Loadout and cubes.** Takes lightning (240 dps close range, chains) and laser (hitscan, 315 per full charge), dropping the gun for the second; avoids mortars (laser cook-off). Breaks crates (50 % weapon drop) while a slot is empty, farms NPC drones/crates for cubes when no mechs are around, collects cubes and uncontested supply drops.
-4. **Fighting.** Picks the target that dies fastest; leads gun shots with a smoothed target velocity (~90 % hit rate in the simulator), releases the laser only when fully charged and on target, fires lightning inside its cone. Strafes with random reversals, sidesteps bullets predicted to hit and charging lasers aimed at it, dodges mortar impact points, faces enemies (rear hits do ×1.5). With two or more enemies able to see it, it moves to a nearby spot that keeps a shot on its target but hides it from the others.
-5. **Evade and retreat.** When three or more enemies are known nearby (squads converge on a sighting), or when hurt, it breaks contact: it weaves to a reachable ground spot, away from the threat centroid, that none of the known enemies can see, firing at whatever stays in view, and regenerates there.
-6. **Practice vs free-for-all.** The practice house squad never kills its own members; once the bot sees mechs dying that it didn't kill it switches to a more cautious free-for-all profile (evade at two enemies, close in only when clearly ahead).
-7. **Upgrades.** Armor → plating → repair nanites → weapon upgrades.
-8. **Robustness.** Single static binary, `GOMAXPROCS=1` (1-CPU quota, 128-thread sandbox), time-capped A* and a per-decision time guard (typical decision < 1 ms), panic recovery that coasts on the last move, newest-observation rule, NaN-safe output.
+1. **Fight what is on us, leave bystanders alone.** A mech is "hot" if it hit us recently, points its torso at us within 150 m, charges a laser at us, or is very close; a nearly dead mech in reach is always fair game. Only hot mechs are targets or count as threats.
+2. **Gun plus one special, fired together.** The gun is never swapped out; the second slot takes laser > lightning > mortar. The laser is released at full charge, or earlier when the current charge already kills; gun shots are led with a smoothed target velocity (also during the first part of a laser charge); the mortar uses a ballistic solver (lead, low/high arc, clear-arc check).
+3. **Loot and cubes.** 360° look at spawn, crates while a slot is empty, drones/crates for cubes when nobody is on us, cubes and weapons from kills, uncontested supply drops.
+4. **Positioning.** Covered spots inside the next circle, away from known mechs. With two or more hot enemies it moves to a spot that keeps a shot on its target but hides it from the others; it backs out of hot lightning carriers' range; it sidesteps bullets, charging lasers and mortar impact points.
+5. **Evade and retreat.** With three or more hot enemies, or when hurt (HP thresholds by enemy count), it weaves to a ground spot none of them can see and regenerates — but it keeps firing; hiding to heal costs kills.
+6. **Zone and navigation.** Always inside the next circle with margin. 2 m nav grid with mech clearance, free drops and jump/jet climbs (stadium field, roofs); no climbing near enemies.
+7. **Free-for-all.** When mechs die that we did not kill, it switches to a more cautious profile (evade at two enemies, shorter engagement range).
+8. **Robustness.** Static binary, `GOMAXPROCS=1`, time-capped A*, per-decision time guard (typical decision < 1 ms), panic recovery, NaN-safe output.
+
+Measured practice scores on the real scorer as the bot evolved: 3.99 → 4.22 → 4.73 (gate + keep gun) → 5.06 (lethal laser release).
 
 Strategy constants live in `params.go`; `MECHBOT_PARAMS="key=val,..."` overrides them for local experiments only.
 
 ## Local simulator
 
 `sim/` is an approximate re-implementation of the server (movement/collision, zone, vision, sound, all weapons, loot,
-upgrades, supply drops) with a 15-bot house squad for practice mode and an FFA mode. On it the kit example bot scores
-about 1.05 (official practice baseline 1.21), so scores are roughly comparable.
+upgrades, supply drops) with a 15-bot house squad for practice mode and an FFA mode. Use the escalating squad
+(`--escalate --house-noise 0.5 --esc-per-kill 1`): calibrated against real scores, and its deltas matched the real
+scorer twice (+0.4 predicted / +0.5 real, +0.3 / +0.33). The default (non-escalating) squad sends several hunters at
+once and mis-ranks strategies (it favoured kiting, which lost 0.5 on the real scorer).
 
 ```sh
 (cd sim && go build -o mechsim .)
 go build -o mechbot .
-(cd sim && ./mechsim --mode practice --bot ../mechbot --matches 48 --jobs 8 --seed 1 --out ../out/run1)
-tools/ab.sh out/ab 96 1 practice 8 $PWD/mechbot "base:" "variant:evade_n=2"   # paired A/B on identical seeds
+(cd sim && ./mechsim --escalate --house-noise 0.5 --esc-per-kill 1 --mode practice --bot ../mechbot --matches 48 --jobs 8 --seed 1 --out ../out/run1)
+SIMFLAGS="--escalate --house-noise 0.5 --esc-per-kill 1" tools/ab.sh out/ab 256 1 practice 6 $PWD/mechbot "base:" "variant:evade_n=2"   # paired A/B
 python3 tools/plotrep.py out/run1/replay_match0.jsonl out/rep.png               # needs --replay
 ```
 
