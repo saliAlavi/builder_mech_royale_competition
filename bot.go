@@ -93,6 +93,8 @@ type Bot struct {
 	mode        string
 }
 
+var traceOn = os.Getenv("MECHBOT_TRACE") != ""
+
 func NewBot(h *Hello) *Bot {
 	b := &Bot{cfg: &h.Config, slot: h.Slot, rng: rand.New(rand.NewSource(h.Seed + 7)),
 		enemies: map[int]*Track{}, npcs: map[int]*Track{}, pickups: map[int]*ItemMem{}, cubes: map[int]*ItemMem{},
@@ -426,8 +428,15 @@ func wval(kind string) float64 {
 
 // lootGain: improvement from taking kind; returns gain and slot to drop (-1 = empty slot).
 func (b *Bot) lootGain(kind string) (float64, int) {
-	if kind == "mortar" || kind == "" {
+	if (kind == "mortar" && P["take_mortar"] == 0) || kind == "" {
 		return 0, -1
+	}
+	if kind == "laser" && P["laser_over_gun"] == 0 {
+		if g, _ := b.weapon("gun"); g != nil && b.me.Weapons[0] != nil && b.me.Weapons[1] != nil {
+			if l, _ := b.weapon("lightning"); l != nil {
+				return 0, -1
+			}
+		}
 	}
 	for _, w := range b.me.Weapons {
 		if w != nil && w.Kind == kind {
@@ -506,6 +515,15 @@ func (b *Bot) Act(o *Obs) *Action {
 	b.fight(act, tgt)
 	b.tryTake(act)
 	b.lastAim = act.Aim
+	if traceOn {
+		tid := -1
+		if tgt != nil {
+			tid = tgt.ID
+		}
+		logf("t=%.1f mode=%s pos=(%.0f,%.0f,%.1f) hp=%.0f en=%.0f tgt=%d mv=(%.2f,%.2f) b=%v j=%v aim=(%.2f,%.2f) cur=(%.2f,%.2f) fire=%v take=%v nE=%d",
+			b.t, b.mode, b.pos[0], b.pos[1], b.pos[2], b.me.HP, b.me.Energy, tid, act.Move[0], act.Move[1], act.Boost, act.Jump,
+			act.Aim[0], act.Aim[1], b.me.Aim[0], b.me.Aim[1], act.Fire, act.Take != nil, len(b.o.Mechs))
+	}
 	b.hist = append(b.hist, b.pos)
 	b.histMv = append(b.histMv, math.Hypot(act.Move[0], act.Move[1]))
 	return act
@@ -596,7 +614,7 @@ func (b *Bot) farmTarget() *farm {
 			best = &farm{pos: t.Pos, aimZ: 1.75, vel: t.Vel, npc: true, id: t.ID}
 		}
 	}
-	if b.t < 330 && b.me.HP > 0.5*b.me.MaxHP {
+	if b.t < P["farm_max_t"] && b.me.HP > 0.5*b.me.MaxHP {
 		for _, c := range b.o.Crates {
 			d := dist3(c.Pos, b.pos)
 			if d > 80 || d+20 > bestD {
@@ -667,7 +685,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		vel = tgt.Vel
 		tRad, tHalfH = 2.5*sc, 4.5*sc
 		have, los, isMech = true, tgt.LOS, true
-	} else if f := b.farmTarget(); f != nil && b.mode != "zone" {
+	} else if f := b.farmTarget(); f != nil && b.mode != "zone" && P["farm"] > 0 {
 		aimPt = Vec3{f.pos[0], f.pos[1], f.pos[2] + f.aimZ}
 		vel = f.vel
 		tRad, tHalfH = 1.4, 1.2

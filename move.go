@@ -44,10 +44,10 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	}
 	hp := b.hpFrac()
 	if b.retreat {
-		if hp > 0.8 || (nThreat == 0 && b.t-b.lastHurtT > 8 && hp > 0.6) {
+		if hp > P["retreat_exit"] || (nThreat == 0 && b.t-b.lastHurtT > 8 && hp > 0.6) {
 			b.retreat = false
 		}
-	} else if nThreat > 0 && (hp < 0.3 || (nThreat >= 3 && hp < 0.6) || (nThreat >= 2 && hp < 0.42)) {
+	} else if nThreat > 0 && (hp < P["retreat_hp"] || (nThreat >= 3 && hp < P["retreat_hp3"]) || (nThreat >= 2 && hp < P["retreat_hp2"])) {
 		b.retreat = true
 		b.coverOK = false
 	}
@@ -91,9 +91,13 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		if b.me.Energy > 30 && hdist(b.pos, b.cover) > 6 {
 			act.Boost = true
 		}
-	case tgt != nil:
+	case tgt != nil && (tgt.LOS || b.aggressive(tgt, nThreat)):
 		b.mode = "fight"
 		dir = b.combatMove(tgt, nThreat)
+	case tgt != nil:
+		// known but not shootable and we're not pressing: keep to cover goal, facing it
+		b.mode = "wary"
+		dir = b.navTo(b.strategicGoal(), act)
 	default:
 		if g, ok := b.lootGoal(); ok {
 			b.mode = "loot"
@@ -107,13 +111,20 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		} else {
 			g := b.strategicGoal()
 			dir = b.navTo(g, act)
-			if !b.recentDanger() && reqSpeed < 0.35*b.walkSpeed() {
+			if P["quiet"] > 0 && !b.recentDanger() && reqSpeed < 0.35*b.walkSpeed() && hdist(g, b.pos) < 60 {
 				speed = b.quietMag()
 			}
 		}
 	}
 	// laser charging halves speed anyway; don't bother
 	act.Move = Vec2{dir[0] * speed, dir[1] * speed}
+	if b.mode == "fight" || b.mode == "wary" || b.mode == "retreat" || b.mode == "goal" || b.mode == "loot" {
+		if dg := b.bulletDodge(); math.Hypot(dg[0], dg[1]) > 0.3 {
+			d := norm2(dg[0], dg[1])
+			nd := b.steerClear(norm2(act.Move[0]+2*d[0], act.Move[1]+2*d[1]))
+			act.Move = nd
+		}
+	}
 	b.antiStuck(act)
 	b.laserJuke(act)
 }
@@ -163,13 +174,13 @@ func (b *Bot) strategicGoal() Vec3 {
 	}
 	score := func(id int) float64 {
 		p := b.nav.pos(id)
-		s := -1.0 * math.Hypot(p[0]-c[0], p[1]-c[1]) / math.Max(r, 30)
-		s -= 0.7 * hdist(p, b.pos) / 250
-		s += 0.9 * float64(b.nav.coverScore(id)) / 16
+		s := -P["w_center"] * math.Hypot(p[0]-c[0], p[1]-c[1]) / math.Max(r, 30)
+		s -= P["w_travel"] * hdist(p, b.pos) / 250
+		s += P["w_cover"] * float64(b.nav.coverScore(id)) / 16
 		for _, t := range b.enemies {
 			if b.t-t.LastSeen < 30 {
 				dd := hdist(p, t.Pos)
-				s -= 1.2 * math.Max(0, 1-dd/140)
+				s -= P["w_enemy"] * math.Max(0, 1-dd/140)
 			}
 		}
 		return s
@@ -215,9 +226,9 @@ func (b *Bot) strategicGoal() Vec3 {
 func (b *Bot) lootGoal() (Vec3, bool) {
 	bestV := 0.0
 	var best Vec3
-	maxD := 70.0
+	maxD := P["loot_m"]
 	if b.t < 75 {
-		maxD = 160
+		maxD = P["loot_early_m"]
 	}
 	for _, p := range b.pickups {
 		g, _ := b.lootGain(p.Kind)
@@ -255,6 +266,9 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 	}
 	// supply drops: worth a lot if uncontested
 	for _, dr := range b.o.Drops {
+		if P["drops"] == 0 {
+			break
+		}
 		d := hdist(dr.Pos, b.pos)
 		if d > 160 || dr.LandsIn > d/9+3 {
 			continue
@@ -282,17 +296,22 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 	return best, bestV > 0
 }
 
+func (b *Bot) aggressive(tgt *Track, nThreat int) bool {
+	return b.hpFrac() > P["aggr_hp"] && nThreat <= 2 && tgt.HP <= b.me.HP*1.3
+}
+
 // combatMove: hold a preferred range and strafe unpredictably.
 func (b *Bot) combatMove(tgt *Track, nThreat int) Vec2 {
 	d := hdist(tgt.Pos, b.pos)
 	lit, _ := b.weapon("lightning")
 	las, _ := b.weapon("laser")
 	pref := 70.0
-	aggressive := b.hpFrac() > 0.55 && nThreat <= 2 && tgt.HP <= b.me.HP*1.3
+	aggressive := b.aggressive(tgt, nThreat)
+	pref = P["pref_gun"]
 	if lit != nil && aggressive && b.me.Energy > 25 {
-		pref = 26
+		pref = P["pref_lightning"]
 	} else if las != nil {
-		pref = 120
+		pref = P["pref_laser"]
 	} else if lit != nil {
 		pref = 55
 	}
@@ -417,6 +436,50 @@ func (b *Bot) mortarDodge() (Vec2, bool) {
 		}
 	}
 	return Vec2{}, false
+}
+
+// bulletDodge: sum of sidestep directions for incoming bullets that would hit us.
+func (b *Bot) bulletDodge() Vec2 {
+	sc := b.scaleOf(b.me.Cubes)
+	R := 2.5*sc + 0.8
+	cz := b.pos[2] + 4.5*sc
+	var dx, dy float64
+	for _, p := range b.o.Projectiles {
+		if p.Kind == "mortar" {
+			continue
+		}
+		rx, ry, rz := b.pos[0]-p.Pos[0], b.pos[1]-p.Pos[1], cz-p.Pos[2]
+		v2 := p.Vel[0]*p.Vel[0] + p.Vel[1]*p.Vel[1] + p.Vel[2]*p.Vel[2]
+		if v2 < 1 {
+			continue
+		}
+		tca := (rx*p.Vel[0] + ry*p.Vel[1] + rz*p.Vel[2]) / v2
+		if tca < 0.05 || tca > 1.5 {
+			continue
+		}
+		mx, my, mz := rx-p.Vel[0]*tca, ry-p.Vel[1]*tca, rz-p.Vel[2]*tca
+		if math.Abs(mz) > 4.5*sc+0.5 || math.Hypot(mx, my) > R {
+			continue
+		}
+		// sidestep perpendicular to the bullet, toward the side we're already on
+		px, py := -p.Vel[1], p.Vel[0]
+		l := math.Hypot(px, py)
+		if l < 1e-6 {
+			continue
+		}
+		px, py = px/l, py/l
+		side := mx*px + my*py
+		if math.Abs(side) < 0.3 {
+			side = b.strafe
+		}
+		if side < 0 {
+			px, py = -px, -py
+		}
+		w := 1 / (tca + 0.15)
+		dx += px * w
+		dy += py * w
+	}
+	return Vec2{dx, dy}
 }
 
 // laserJuke: an enemy charging a laser while aiming at us -> sidestep harder.
