@@ -74,12 +74,13 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	speed := 1.0
 	var dir Vec2
 	b.mode = "goal"
+	b.jetting = false
 
 	// 1) mortar dodge (highest priority)
 	if dd, ok := b.mortarDodge(); ok {
 		b.mode = "dodge"
 		act.Move = dd
-		if b.me.Energy > 20 {
+		if b.me.Energy > 20 && b.me.Grounded {
 			act.Boost = true
 		}
 		return
@@ -138,8 +139,17 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 			act.Move = nd
 		}
 	}
-	b.antiStuck(act)
+	if b.mode != "fight" {
+		b.antiStuck(act)
+	} else {
+		b.hist = b.hist[:0]
+		b.histMv = b.histMv[:0]
+	}
 	b.laserJuke(act)
+	// boost in the air is a jet (flies up): only when deliberately climbing / unsticking
+	if act.Boost && !b.me.Grounded && !b.jetting && b.t >= b.unstuckT {
+		act.Boost = false
+	}
 }
 
 func (b *Bot) recentDanger() bool {
@@ -314,7 +324,11 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 // engage: worth starting/continuing a fight with tgt?
 func (b *Bot) engage(tgt *Track) bool {
 	d := hdist(tgt.Pos, b.pos)
-	return d <= P["engage_m"] || b.t-tgt.HitUsT < 6 || b.t-b.lastHurtT < 3 || b.t-b.lastHitT < 3 ||
+	lim := P["engage_m"]
+	if b.me.Weapons[0] == nil || b.me.Weapons[1] == nil {
+		lim = math.Min(lim, P["engage_m_1w"])
+	}
+	return d <= lim || b.t-tgt.HitUsT < 6 || b.t-b.lastHurtT < 3 || b.t-b.lastHitT < 3 ||
 		tgt.HP < 0.35*math.Max(tgt.MaxHP, 1)
 }
 
@@ -655,6 +669,36 @@ func (b *Bot) antiStuck(act *Action) {
 	expect := mv * b.walkSpeed() * 1.1 * 0.35
 	if moved < math.Max(1.5, expect*0.2) {
 		b.stuckN++
+		b.stuckTimes = append(b.stuckTimes, b.t)
+		recent := 0
+		for _, st := range b.stuckTimes {
+			if b.t-st < 12 {
+				recent++
+			}
+		}
+		if recent >= 3 {
+			// repeatedly stuck: head for the nearest ground-network node (drop off whatever we're on)
+			b.stuckTimes = b.stuckTimes[:0]
+			if id := b.nav.nearestOK(b.pos[0], b.pos[1], 1e4, 40, true); id >= 0 {
+				p := b.nav.pos(id)
+				if hdist(p, b.pos) > 1 {
+					b.unstuckD = norm2(p[0]-b.pos[0], p[1]-b.pos[1])
+					b.unstuckT = b.t + 2.5
+					for r := 0.0; r <= 8; r += 2 {
+						u, v := b.nav.nodeAt(b.pos[0]+b.unstuckD[0]*r, b.pos[1]+b.unstuckD[1]*r)
+						if id2 := b.nav.id(u, v); id2 >= 0 {
+							b.nav.Pen[id2] += 4
+						}
+					}
+					b.path = nil
+					b.hist = b.hist[:0]
+					b.histMv = b.histMv[:0]
+					act.Move = b.unstuckD
+					act.Jump = b.me.Grounded
+					return
+				}
+			}
+		}
 		// penalize nodes ahead
 		d := norm2(act.Move[0], act.Move[1])
 		for r := 2.0; r <= 6; r += 2 {

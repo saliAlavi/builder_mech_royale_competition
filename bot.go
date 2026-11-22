@@ -14,6 +14,7 @@ type Track struct {
 	ID       int
 	Kind     string
 	Pos, Vel Vec3
+	SVel     Vec3 // smoothed velocity (EMA) for leading shots
 	Aim      Vec2
 	HP       float64
 	MaxHP    float64
@@ -63,20 +64,21 @@ type Bot struct {
 	lastZone    Zone
 
 	// navigation
-	path     []int
-	pathIdx  int
-	pathGoal Vec3
-	pathT    float64
-	goal     Vec3
-	goalOK   bool
-	goalT    float64
-	goalNext Vec2
-	hist     []Vec3
-	histMv   []float64
-	unstuckT float64
-	unstuckD Vec2
-	stuckN   int
-	jetting  bool
+	path       []int
+	pathIdx    int
+	pathGoal   Vec3
+	pathT      float64
+	goal       Vec3
+	goalOK     bool
+	goalT      float64
+	goalNext   Vec2
+	hist       []Vec3
+	histMv     []float64
+	unstuckT   float64
+	unstuckD   Vec2
+	stuckN     int
+	jetting    bool
+	stuckTimes []float64
 
 	// combat
 	targetID    int
@@ -91,6 +93,8 @@ type Bot struct {
 	failTake    map[int]float64
 	lastAim     Vec2
 	mode        string
+	kills       int
+	ffa         bool
 	spawnYaw    float64
 	spawnSet    bool
 }
@@ -258,6 +262,13 @@ func (b *Bot) update(o *Obs) {
 			t = &Track{ID: a.ID, Kind: a.Kind, HitUsT: -100}
 			m[a.ID] = t
 		}
+		if al := P["lead_smooth"]; al > 0 && t.LastSeen > 0 && b.t-t.LastSeen < 0.5 {
+			for k := 0; k < 3; k++ {
+				t.SVel[k] += al * (a.Vel[k] - t.SVel[k])
+			}
+		} else {
+			t.SVel = a.Vel
+		}
 		t.Pos, t.Vel, t.Aim = a.Pos, a.Vel, a.Aim
 		if a.HP != nil {
 			t.HP = *a.HP
@@ -351,10 +362,21 @@ func (b *Bot) update(o *Obs) {
 				}
 			}
 		case "kill":
+			b.kills++
 			if t := b.enemies[int(e.Target)]; t != nil {
 				delete(b.enemies, int(e.Target))
 			}
 		}
+	}
+	// free-for-all detection: mechs dying that we didn't kill
+	total := int(b.cfg.Match.Mechs)
+	if total <= 0 {
+		total = 16
+	}
+	if !b.ffa && P["ffa_detect"] > 0 && float64(total-o.Alive-b.kills) >= P["ffa_detect"] {
+		b.ffa = true
+		applyFFA()
+		logf("t=%.1f: free-for-all detected (alive %d, our kills %d)", b.t, o.Alive, b.kills)
 	}
 	for _, s := range o.Sounds {
 		w := 0.0
@@ -693,6 +715,9 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		sc := b.scaleOf(tgt.Cubes)
 		aimPt = Vec3{tgt.Pos[0], tgt.Pos[1], tgt.Pos[2] + 4.5*sc}
 		vel = tgt.Vel
+		if P["lead_smooth"] > 0 {
+			vel = tgt.SVel
+		}
 		tRad, tHalfH = 2.5*sc, 4.5*sc
 		have, los, isMech = true, tgt.LOS, true
 	} else if f := b.farmTarget(); f != nil && b.mode != "zone" && P["farm"] > 0 {

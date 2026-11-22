@@ -26,8 +26,24 @@ Scoring is placement only, so the bot plays for survival:
 2. **Quiet and covered.** Out of combat it walks below the 5 m/s step-sound threshold and picks goal spots with building cover, close to the next circle's centre and away from recently seen enemies. The torso sweeps toward recent sound/damage bearings to spot threats first.
 3. **Loadout.** Takes lightning (240 dps close-range, chains) and laser (hitscan, 315 per full charge) and drops the gun for the second one; avoids mortars (laser cook-off).
 4. **Fighting.** Picks the target that dies fastest; leads gun shots exactly, releases the laser only when fully charged and on target, fires lightning inside its cone. Strafes with random reversals, keeps a range suited to its weapons, faces enemies (rear hits do ×1.5).
-5. **Retreat.** When hurt or outnumbered it falls back to a reachable spot that enemies cannot see, to regenerate.
+5. **Evade and retreat.** When three or more enemies are known nearby (squads converge on a sighting), or when hurt, it breaks contact: it moves to a reachable spot, away from the threat centroid, that none of the known enemies can see, firing at whatever stays in view, and regenerates there.
 6. **Upgrades.** Armor → plating → repair nanites → weapon upgrades.
+
+Strategy constants live in `params.go`; `MECHBOT_PARAMS="key=val,..."` overrides them for local experiments only.
+
+## Local simulator
+
+`sim/` is an approximate re-implementation of the server (movement/collision, zone, vision, sound, all weapons, loot,
+upgrades, supply drops) with a 15-bot house squad for practice mode and an FFA mode. On it the kit example bot scores
+about 1.05 (official practice baseline 1.21), so scores are roughly comparable.
+
+```sh
+(cd sim && go build -o mechsim .)
+go build -o mechbot .
+(cd sim && ./mechsim --mode practice --bot ../mechbot --matches 48 --jobs 8 --seed 1 --out ../out/run1)
+tools/ab.sh out/ab 96 1 practice 8 $PWD/mechbot "base:" "variant:evade_n=2"   # paired A/B on identical seeds
+python3 tools/plotrep.py out/run1/replay_match0.jsonl out/rep.png               # needs --replay
+```
 
 ## Test
 

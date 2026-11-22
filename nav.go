@@ -371,6 +371,9 @@ func (n *Nav) FindPath(s, t int, maxExp int, extra func(id int) float32) []int {
 				continue
 			}
 			c := stepCost[k] * navStride * (1 + n.Pen[b])
+			if n.Comp[b] != n.MainComp {
+				c *= 2.5 // roofs / stadium stands: only when needed
+			}
 			if extra != nil {
 				c *= 1 + extra(b)
 			}
@@ -395,7 +398,7 @@ func (n *Nav) FindPath(s, t int, maxExp int, extra func(id int) float32) []int {
 				continue
 			}
 			// jets are loud and slow: cost distance + 3 per metre climbed + fixed 25
-			ng := ga + e.dist + 3*e.rise + 25 + n.Pen[b]*navStride
+			ng := ga + e.dist + 7*e.rise + 70 + n.Pen[b]*navStride
 			if n.stamp[b] != gen || ng < n.g[b] {
 				n.stamp[b] = gen
 				n.g[b] = ng

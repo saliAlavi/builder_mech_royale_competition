@@ -31,20 +31,44 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"ffa_detect":     2,  // number of deaths we didn't cause that switches to the FFA profile (0 = never)
 	"evade_n":        3,  // break contact when this many enemies are known nearby
 	"evade_n_1w":     99, // ... same, while holding a single weapon
 	"cover_max_m":    66,
+	"engage_m_1w":    400, // ... while holding a single weapon
+	"lead_smooth":    0.3, // EMA factor for target velocity when leading gun shots (0 = raw)
 	"engage_m":       400, // only open fire on mechs within this range (unless shot at / target weak)
 }
 
-func init() {
-	for _, kv := range strings.Split(os.Getenv("MECHBOT_PARAMS"), ",") {
+// FFA overrides: applied once the bot sees mechs dying that it didn't kill (a real free-for-all,
+// not the practice squad, whose members never fight each other). MECHBOT_FFA overrides them.
+var FFA = map[string]float64{
+	"evade_n": 2,
+	"aggr_hp": 0.8,
+}
+
+func parseKV(env string, m map[string]float64) {
+	for _, kv := range strings.Split(os.Getenv(env), ",") {
 		k, v, ok := strings.Cut(strings.TrimSpace(kv), "=")
 		if !ok {
 			continue
 		}
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			P[k] = f
+			m[k] = f
 		}
+	}
+}
+
+func init() {
+	parseKV("MECHBOT_PARAMS", P)
+	if os.Getenv("MECHBOT_FFA") != "" {
+		FFA = map[string]float64{}
+		parseKV("MECHBOT_FFA", FFA)
+	}
+}
+
+func applyFFA() {
+	for k, v := range FFA {
+		P[k] = v
 	}
 }
