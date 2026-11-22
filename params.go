@@ -25,21 +25,23 @@ var P = map[string]float64{
 	"loot_early_m":   220,
 	"spawn_scan_s":   1.8,
 	"loot_m":         70,
-	"w_center":       1.0,
+	"w_center":       0.3,
 	"w_travel":       0.7,
 	"w_cover":        0.9,
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
-	"fight_pos":      0,   // seek spots that hide us from all but the target when 2+ enemies see us
-	"nav_nonmain":    2.5, // path cost multiplier on roofs / stadium stands
-	"nav_jet_rise":   7,   // jet-climb edge cost per metre of rise
-	"nav_jet_fixed":  70,  // ... plus this fixed cost
-	"stuck_esc":      1,   // escalate repeated stuck events (head for ground network)
-	"upg_order":      0,   // 0 survival-first, 1 offense-first, 2 mixed
-	"ffa_detect":     2,   // number of deaths we didn't cause that switches to the FFA profile (0 = never)
-	"evade_n":        3,   // break contact when this many enemies are known nearby
-	"evade_n_1w":     99,  // ... same, while holding a single weapon
+	"regen_hold":     0,    // when hurt and out of contact, hold a sheltered spot to regenerate
+	"regen_hold_hp":  0.75, // ... below this HP fraction
+	"fight_pos":      1,    // seek spots that hide us from all but the target when 2+ enemies see us
+	"nav_nonmain":    2.5,  // path cost multiplier on roofs / stadium stands
+	"nav_jet_rise":   7,    // jet-climb edge cost per metre of rise
+	"nav_jet_fixed":  70,   // ... plus this fixed cost
+	"stuck_esc":      1,    // escalate repeated stuck events (head for ground network)
+	"upg_order":      0,    // 0 survival-first, 1 offense-first, 2 mixed
+	"ffa_detect":     2,    // number of deaths we didn't cause that switches to the FFA profile (0 = never)
+	"evade_n":        3,    // break contact when this many enemies are known nearby
+	"evade_n_1w":     99,   // ... same, while holding a single weapon
 	"cover_max_m":    66,
 	"engage_m_1w":    400, // ... while holding a single weapon
 	"lead_smooth":    0.3, // EMA factor for target velocity when leading gun shots (0 = raw)

@@ -80,6 +80,9 @@ type Bot struct {
 	jetting    bool
 	stuckTimes []float64
 	corner     Vec3
+	hide       Vec3
+	hideOK     bool
+	hideT      float64
 	cornerOK   bool
 	cornerT    float64
 

@@ -118,6 +118,18 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		// known but not shootable / not worth a fight: keep to cover goal, facing it
 		b.mode = "wary"
 		dir = b.navTo(b.strategicGoal(), act)
+	case P["regen_hold"] > 0 && hp < P["regen_hold_hp"] && b.t-b.lastHurtT > 2 && reqSpeed < 0.3*b.walkSpeed() && !b.enemySeenWithin(4):
+		b.mode = "regen"
+		if !b.hideOK || b.t-b.hideT > 3 {
+			b.hide, b.hideOK = b.hideSpot()
+			b.hideT = b.t
+		}
+		if b.hideOK {
+			dir = b.navTo(b.hide, act)
+			if hdist(b.hide, b.pos) < 4 {
+				speed = 0
+			}
+		}
 	default:
 		if g, ok := b.lootGoal(); ok {
 			b.mode = "loot"
@@ -150,6 +162,44 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	if act.Boost && !b.me.Grounded && !b.jetting && b.t >= b.unstuckT {
 		act.Boost = false
 	}
+}
+
+func (b *Bot) enemySeenWithin(s float64) bool {
+	for _, t := range b.enemies {
+		if b.t-t.LastSeen < s {
+			return true
+		}
+	}
+	return false
+}
+
+// hideSpot: the most sheltered reachable spot within ~25 m (for regenerating).
+func (b *Bot) hideSpot() (Vec3, bool) {
+	bestS := math.Inf(-1)
+	var best Vec3
+	ok := false
+	for _, r := range []float64{0, 8, 16, 24} {
+		n := 10
+		if r == 0 {
+			n = 1
+		}
+		for k := 0; k < n; k++ {
+			a := float64(k) / float64(n) * 2 * math.Pi
+			id := b.nav.nearestOK(b.pos[0]+math.Cos(a)*r, b.pos[1]+math.Sin(a)*r, b.pos[2], 3, true)
+			if id < 0 {
+				continue
+			}
+			p := b.nav.pos(id)
+			if !b.insideAt(p, b.t+20, 8) {
+				continue
+			}
+			s := float64(b.nav.coverScore(id)) - r/12
+			if s > bestS {
+				bestS, best, ok = s, p, true
+			}
+		}
+	}
+	return best, ok
 }
 
 func (b *Bot) recentDanger() bool {
