@@ -396,7 +396,7 @@ func (b *Bot) update(o *Obs) {
 	if total <= 0 {
 		total = 16
 	}
-	if !b.ffa && P["ffa_detect"] > 0 && float64(total-o.Alive-b.kills) >= P["ffa_detect"] {
+	if !b.ffa && P["ffa_detect"] > 0 && b.t <= P["ffa_detect_t"] && float64(total-o.Alive-b.kills) >= P["ffa_detect"] {
 		b.ffa = true
 		applyFFA()
 		logf("t=%.1f: free-for-all detected (alive %d, our kills %d)", b.t, o.Alive, b.kills)

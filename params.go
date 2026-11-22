@@ -71,6 +71,12 @@ var P = map[string]float64{
 	"engage_m_1w":     400, // ... while holding a single weapon
 	"lead_smooth":     0.3, // EMA factor for target velocity when leading gun shots (0 = raw)
 	"engage_m":        400, // only open fire on mechs within this range (unless shot at / target weak)
+	"ffa_detect_t":    1e9, // ... only count deaths while the match clock is below this
+	"drop_m":          160, // go for supply drops within this distance
+	"drop_contest_m":  90,  // ... unless an enemy was seen this close to it in the last 10 s
+	"rear_pref":       0,   // target choice: count enemies facing away as having HP / rear_mult
+	"roof_goal":       0,   // score bonus for strategic goals in the interior of tall roofs (0 = off)
+	"roof_min_h":      8,   // ... minimum roof height above the terrain
 }
 
 // FFA overrides: applied once the bot sees mechs dying that it didn't kill (a real free-for-all,

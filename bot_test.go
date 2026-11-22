@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +83,23 @@ func TestStreamActs(t *testing.T) {
 		for _, v := range []float64{a.Move[0], a.Move[1], a.Aim[0], a.Aim[1]} {
 			if math.IsNaN(v) || math.IsInf(v, 0) {
 				t.Fatalf("non-finite action at tick %v: %+v", o.Tick, a)
+			}
+		}
+	}
+}
+
+// Every P["key"] read anywhere in the code must have a default in params.go.
+func TestParamsDefined(t *testing.T) {
+	re := regexp.MustCompile(`P\["([a-z0-9_]+)"\]`)
+	files, _ := filepath.Glob("*.go")
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, _ := os.ReadFile(f)
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			if _, ok := P[m[1]]; !ok {
+				t.Errorf("%s: P[%q] has no default", f, m[1])
 			}
 		}
 	}
