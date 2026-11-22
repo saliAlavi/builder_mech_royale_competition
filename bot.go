@@ -874,6 +874,8 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 			}
 		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) && !b.fleeing() {
 			act.Fire[li] = true
+		} else if P["laser_pre"] > 0 && !los && tgt != nil && d < rng*0.8 && las.Cooldown <= 0.05 && !b.fleeing() {
+			act.Fire[li] = true // pre-charge: ready to fire the moment it steps into view
 		}
 	}
 }

@@ -324,7 +324,13 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 			continue
 		}
 		d := hdist(p.Pos, b.pos)
-		if d > maxD || math.Abs(p.Pos[2]-b.pos[2]) > 25 {
+		lim := maxD
+		if p.Kind == "laser" && P["laser_seek_m"] > lim {
+			if l, _ := b.weapon("laser"); l == nil {
+				lim = P["laser_seek_m"]
+			}
+		}
+		if d > lim || math.Abs(p.Pos[2]-b.pos[2]) > 25 {
 			continue
 		}
 		if !b.insideAt(p.Pos, b.t+d/10+5, 5) {

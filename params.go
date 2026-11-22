@@ -31,6 +31,8 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"laser_seek_m":   0,   // travel this far for a known laser pickup while we have none (0 = normal loot range)
+	"laser_pre":      0,   // pre-charge the laser on a known enemy without line of sight
 	"laser_flee":     1,   // 1 = also charge the laser while retreating / racing the zone (half speed)
 	"retreat_zz":     0.6, // lateral weave amplitude while retreating
 	"wv_lightning":   10,  // weapon values for loadout choices
