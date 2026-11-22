@@ -91,11 +91,11 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		if b.me.Energy > 30 && hdist(b.pos, b.cover) > 6 {
 			act.Boost = true
 		}
-	case tgt != nil && (tgt.LOS || b.aggressive(tgt, nThreat)):
+	case tgt != nil && b.engage(tgt) && (tgt.LOS || b.aggressive(tgt, nThreat)):
 		b.mode = "fight"
 		dir = b.combatMove(tgt, nThreat)
 	case tgt != nil:
-		// known but not shootable and we're not pressing: keep to cover goal, facing it
+		// known but not shootable / not worth a fight: keep to cover goal, facing it
 		b.mode = "wary"
 		dir = b.navTo(b.strategicGoal(), act)
 	default:
@@ -294,6 +294,13 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 		}
 	}
 	return best, bestV > 0
+}
+
+// engage: worth starting/continuing a fight with tgt?
+func (b *Bot) engage(tgt *Track) bool {
+	d := hdist(tgt.Pos, b.pos)
+	return d <= P["engage_m"] || b.t-tgt.HitUsT < 6 || b.t-b.lastHurtT < 3 || b.t-b.lastHitT < 3 ||
+		tgt.HP < 0.35*math.Max(tgt.MaxHP, 1)
 }
 
 func (b *Bot) aggressive(tgt *Track, nThreat int) bool {

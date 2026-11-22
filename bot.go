@@ -695,6 +695,12 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		have, los = true, true
 	}
 	_ = isMech
+	if have && b.mode == "wary" && tgt != nil && !b.engage(tgt) {
+		// stay quiet: track it with the torso but don't give away our position
+		act.Aim = Vec2{bearing(muzzle, aimPt), 0}
+		b.holdLaser(act, false)
+		return
+	}
 	if !have {
 		// scan for threats
 		act.Aim = Vec2{b.scanYaw(act), 0}

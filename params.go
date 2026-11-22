@@ -30,6 +30,7 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"engage_m":       400, // only open fire on mechs within this range (unless shot at / target weak)
 }
 
 func init() {
