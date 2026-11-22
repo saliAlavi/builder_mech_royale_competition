@@ -31,6 +31,7 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"laser_flee":     1,   // 1 = also charge the laser while retreating / racing the zone (half speed)
 	"retreat_zz":     0.6, // lateral weave amplitude while retreating
 	"wv_lightning":   10,  // weapon values for loadout choices
 	"wv_laser":       9,

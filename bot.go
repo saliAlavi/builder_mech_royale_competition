@@ -867,18 +867,27 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		if las.Charge > 0 {
 			if las.Charge >= full*0.97 && los && inRange && ey < tolY && ep < tolP {
 				act.Fire[li] = false // release: fires now
+			} else if b.fleeing() {
+				act.Fire[li] = false // let go (partial shot) to get our speed back
 			} else {
 				act.Fire[li] = true
 			}
-		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) {
+		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) && !b.fleeing() {
 			act.Fire[li] = true
 		}
 	}
 }
 
+// fleeing: modes where half-speed laser charging costs us (running away / racing the zone).
+func (b *Bot) fleeing() bool {
+	return P["laser_flee"] == 0 && (b.mode == "retreat" || b.mode == "zone" || b.mode == "dodge")
+}
+
 func (b *Bot) holdLaser(act *Action, _ bool) {
 	if las, li := b.weapon("laser"); las != nil && las.Charge > 0 {
-		act.Fire[li] = true // keep holding until a target shows up (auto-fires after hold_s)
+		// keep holding until a target shows up (auto-fires after hold_s) -- unless we're running:
+		// charging halves our speed, so let it go
+		act.Fire[li] = !b.fleeing()
 	}
 }
 
