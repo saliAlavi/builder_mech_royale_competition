@@ -939,6 +939,8 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 	las, li := b.weapon("laser")
 	lit, ti := b.weapon("lightning")
 
+	ls := P["lead_scale"]
+	lvel := Vec3{vel[0] * ls, vel[1] * ls, vel[2] * ls} // house bots reverse their strafe: under-lead a little
 	// choose aim: laser charging/ready gets hitscan aim; else lightning if close; else gun lead
 	hitYaw := bearing(muzzle, aimPt)
 	hitPitch := math.Atan2(aimPt[2]-muzzle[2], math.Hypot(aimPt[0]-muzzle[0], aimPt[1]-muzzle[1]))
@@ -956,7 +958,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		want = Vec2{scanYaw, scanPitch}
 	} else if gun != nil {
 		spd := wstat(gun, "speed", 252)
-		y, p, _ := leadAim(Vec3{muzzle[0], muzzle[1], muzzle[2]}, aimPt, vel, spd)
+		y, p, _ := leadAim(Vec3{muzzle[0], muzzle[1], muzzle[2]}, aimPt, lvel, spd)
 		want = Vec2{y, p}
 	}
 	// mortar: if loaded and the laser isn't about to fire, swing to the ballistic solution
@@ -984,7 +986,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 	// gun
 	if gun != nil {
 		spd := wstat(gun, "speed", 252)
-		y, p, _ := leadAim(muzzle, aimPt, vel, spd)
+		y, p, _ := leadAim(muzzle, aimPt, lvel, spd)
 		ey, ep := aimErr(cur, Vec2{y, p})
 		tolY := math.Atan2(tRad*P["gun_tol"], d) + 0.004
 		tolP := math.Atan2(tHalfH*P["gun_tol"], d) + 0.004
@@ -1019,8 +1021,15 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		tolY := math.Atan2(tRad*P["laser_tol"], d) + 0.002
 		tolP := math.Atan2(tHalfH*P["laser_tol"], d) + 0.002
 		inRange := d < rng*0.97
+		lethal := false
+		if tgt != nil && las.Charge >= wstat(las, "min_charge", 0.15) && P["laser_lethal"] > 0 {
+			mf := wstat(las, "min_frac", 0.35)
+			dmg := wstat(las, "damage", 315) * (mf + (1-mf)*math.Min(1, las.Charge/full))
+			dmg *= 1 + 0.04*math.Min(b.me.Cubes, b.cfg.Cubes.StatCap)
+			lethal = dmg >= tgt.HP*1.08
+		}
 		if las.Charge > 0 {
-			if las.Charge >= full*0.97 && los && inRange && ey < tolY && ep < tolP {
+			if (las.Charge >= full*0.97 || lethal) && los && inRange && ey < tolY && ep < tolP {
 				act.Fire[li] = false // release: fires now
 			} else if b.fleeing() {
 				act.Fire[li] = false // let go (partial shot) to get our speed back

@@ -76,6 +76,9 @@ var P = map[string]float64{
 	"kite_zz":         0.3,  // lateral weave while kiting
 	"kite_boost_gap":  40,   // boost when an enemy is this far inside kite_m
 	"kite_los_w":      25,   // bonus for kite spots that keep a line of fire to the target
+	"lead_scale":      1,    // scale target velocity when leading gun shots
+	"laser_lethal":    1,    // release the laser early when the current charge already kills
+	"lit_standoff_m":  0,    // back away from hot lightning carriers closer than this (0 = off)
 	"gate":            1,    // 1 = only fight mechs that are on us (hot-target gate)
 	"gate_hold_s":     8,    // a mech stays hot this long after hitting / aiming at us
 	"gate_aim":        0.22, // rad: its torso points at us within this

@@ -466,7 +466,8 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 // back away at full speed toward open ground (the torso keeps firing; legs are independent).
 func (b *Bot) kiteMove(tgt *Track, nThreat int, act *Action) (Vec2, bool) {
 	km := P["kite_m"]
-	if km <= 0 {
+	lsm := P["lit_standoff_m"]
+	if km <= 0 && lsm <= 0 {
 		return Vec2{}, false
 	}
 	if P["dive_hp"] > 0 && tgt.HP < P["dive_hp"]*math.Max(tgt.MaxHP, 1) && b.hpFrac() > 0.3 && nThreat <= 2 {
@@ -480,7 +481,18 @@ func (b *Bot) kiteMove(tgt *Track, nThreat int, act *Action) (Vec2, bool) {
 	dmin := math.Inf(1)
 	for _, t := range b.enemies {
 		if b.t-t.LastSeen < 3 && b.hot(t) {
-			if d := hdist(t.Pos, b.pos); d < dmin {
+			d := hdist(t.Pos, b.pos)
+			if lsm > 0 {
+				for _, wk := range t.Weapons {
+					if wk == "lightning" && d < lsm {
+						d -= lsm // lightning carrier inside its standoff ring: always back off
+						if km < 1 {
+							km = 1
+						}
+					}
+				}
+			}
+			if d < dmin {
 				dmin = d
 			}
 		}
