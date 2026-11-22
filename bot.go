@@ -1,0 +1,808 @@
+package main
+
+// Decision logic. Survival first (placement scoring): stay in the zone, move quietly, use cover,
+// grab good weapons (lightning, laser), fight efficiently, retreat to regenerate when hurt.
+
+import (
+	"math"
+	"math/rand"
+	"os"
+	"path/filepath"
+)
+
+type Track struct {
+	ID       int
+	Kind     string
+	Pos, Vel Vec3
+	Aim      Vec2
+	HP       float64
+	MaxHP    float64
+	Cubes    float64
+	Weapons  []string
+	Charging bool
+	LastSeen float64
+	InObs    bool
+	LOS      bool // shot line from our muzzle this tick
+	HitUsT   float64
+}
+
+type ItemMem struct {
+	ID   int
+	Kind string
+	Pos  Vec3
+	Seen float64
+}
+
+type Threat struct {
+	Bearing float64
+	T       float64
+	W       float64
+}
+
+type Bot struct {
+	cfg  *Config
+	w    *World
+	nav  *Nav
+	rng  *rand.Rand
+	slot int
+
+	t    float64
+	o    *Obs
+	me   *SelfObs
+	pos  Vec3
+	eyeH float64
+	mzH  float64
+
+	enemies map[int]*Track
+	npcs    map[int]*Track
+	pickups map[int]*ItemMem
+	cubes   map[int]*ItemMem
+	threats []Threat
+
+	zoneInstant bool
+	lastZone    Zone
+
+	// navigation
+	path     []int
+	pathIdx  int
+	pathGoal Vec3
+	pathT    float64
+	goal     Vec3
+	goalOK   bool
+	goalT    float64
+	goalNext Vec2
+	hist     []Vec3
+	histMv   []float64
+	unstuckT float64
+	unstuckD Vec2
+	stuckN   int
+
+	// combat
+	targetID    int
+	strafe      float64
+	strafeUntil float64
+	retreat     bool
+	cover       Vec3
+	coverOK     bool
+	coverT      float64
+	lastHurtT   float64
+	lastHitT    float64
+	failTake    map[int]float64
+	lastAim     Vec2
+	mode        string
+}
+
+func NewBot(h *Hello) *Bot {
+	b := &Bot{cfg: &h.Config, slot: h.Slot, rng: rand.New(rand.NewSource(h.Seed + 7)),
+		enemies: map[int]*Track{}, npcs: map[int]*Track{}, pickups: map[int]*ItemMem{}, cubes: map[int]*ItemMem{},
+		failTake: map[int]float64{}, targetID: -1, strafe: 1, lastHurtT: -100, lastHitT: -100}
+	dirs := []string{h.Map.Dir, "/arena", "/bot/arena", "kit/arena"}
+	if exe, err := os.Executable(); err == nil {
+		dirs = append(dirs, filepath.Join(filepath.Dir(exe), "arena"), filepath.Join(filepath.Dir(exe), "kit", "arena"))
+	}
+	for _, d := range dirs {
+		if d == "" {
+			continue
+		}
+		w, err := loadWorld(d)
+		if err == nil {
+			b.w = w
+			break
+		}
+		logf("map %s: %v", d, err)
+	}
+	if b.w != nil {
+		b.nav = buildNav(b.w)
+		b.w.Nav = b.nav
+	}
+	return b
+}
+
+// ---------------------------------------------------------------- helpers
+
+func wrap(a float64) float64 {
+	for a > math.Pi {
+		a -= 2 * math.Pi
+	}
+	for a < -math.Pi {
+		a += 2 * math.Pi
+	}
+	return a
+}
+
+func hdist(a, b Vec3) float64 { return math.Hypot(a[0]-b[0], a[1]-b[1]) }
+func dist3(a, b Vec3) float64 {
+	return math.Sqrt((a[0]-b[0])*(a[0]-b[0]) + (a[1]-b[1])*(a[1]-b[1]) + (a[2]-b[2])*(a[2]-b[2]))
+}
+func bearing(from, to Vec3) float64 { return math.Atan2(to[1]-from[1], to[0]-from[0]) }
+
+func norm2(x, y float64) Vec2 {
+	l := math.Hypot(x, y)
+	if l < 1e-9 {
+		return Vec2{0, 0}
+	}
+	return Vec2{x / l, y / l}
+}
+
+func (b *Bot) mechf(k string, def float64) float64 {
+	if v, ok := b.me.Stats[k]; ok {
+		return v
+	}
+	if v, ok := b.cfg.Mech[k]; ok {
+		return v
+	}
+	return def
+}
+
+func (b *Bot) wcfg(kind, k string, def float64) float64 {
+	if m, ok := b.cfg.Weapons[kind]; ok {
+		if v, ok := m[k]; ok {
+			return v
+		}
+	}
+	return def
+}
+
+func wstat(w *WeaponObs, k string, def float64) float64 {
+	if w != nil && w.Stats != nil {
+		if v, ok := w.Stats[k]; ok {
+			return v
+		}
+	}
+	return def
+}
+
+func (b *Bot) weapon(kind string) (*WeaponObs, int) {
+	for i, w := range b.me.Weapons {
+		if w != nil && w.Kind == kind {
+			return w, i
+		}
+	}
+	return nil, -1
+}
+
+func (b *Bot) scaleOf(cubes float64) float64 {
+	return 1 + b.cfg.Cubes.SizePerCube*cubes
+}
+
+// ---------------------------------------------------------------- zone
+
+func (b *Bot) zoneAt(tau float64) (Vec2, float64) {
+	z := &b.o.Zone
+	if tau >= z.ShrinkEnd {
+		return z.NextCenter, z.NextRadius
+	}
+	if b.zoneInstant && b.t >= z.ShrinkStart && b.t < z.ShrinkEnd {
+		f := (tau - b.t) / math.Max(1e-3, z.ShrinkEnd-b.t)
+		f = clampf(f, 0, 1)
+		return Vec2{z.Center[0] + (z.NextCenter[0]-z.Center[0])*f, z.Center[1] + (z.NextCenter[1]-z.Center[1])*f},
+			z.Radius + (z.NextRadius-z.Radius)*f
+	}
+	if tau <= z.ShrinkStart {
+		return z.Center, z.Radius
+	}
+	f := (tau - z.ShrinkStart) / math.Max(1e-3, z.ShrinkEnd-z.ShrinkStart)
+	f = clampf(f, 0, 1)
+	return Vec2{z.Center[0] + (z.NextCenter[0]-z.Center[0])*f, z.Center[1] + (z.NextCenter[1]-z.Center[1])*f},
+		z.Radius + (z.NextRadius-z.Radius)*f
+}
+
+// insideAt: margin m inside the zone circle at time tau?
+func (b *Bot) insideAt(p Vec3, tau, m float64) bool {
+	c, r := b.zoneAt(tau)
+	return math.Hypot(p[0]-c[0], p[1]-c[1]) <= r-m
+}
+
+// ---------------------------------------------------------------- memory
+
+func (b *Bot) update(o *Obs) {
+	b.o = o
+	b.t = o.T
+	b.me = &o.Self
+	b.pos = o.Self.Pos
+	sc := b.scaleOf(o.Self.Cubes)
+	b.eyeH = b.mechf("eye_height", 8*sc)
+	b.mzH = b.mechf("muzzle_height", 7*sc)
+	z := o.Zone
+	if b.lastZone.NextRadius == z.NextRadius && b.lastZone.NextCenter == z.NextCenter &&
+		b.t > z.ShrinkStart+0.05 && b.t < z.ShrinkEnd && math.Abs(b.lastZone.Radius-z.Radius) > 1e-6 {
+		b.zoneInstant = true
+	}
+	b.lastZone = z
+
+	for _, t := range b.enemies {
+		t.InObs = false
+		t.LOS = false
+	}
+	for _, t := range b.npcs {
+		t.InObs = false
+		t.LOS = false
+	}
+	muzzle := Vec3{b.pos[0], b.pos[1], b.pos[2] + b.mzH}
+	for _, a := range o.Mechs {
+		m := b.enemies
+		if a.Kind == "npc" {
+			m = b.npcs
+		}
+		t := m[a.ID]
+		if t == nil {
+			t = &Track{ID: a.ID, Kind: a.Kind, HitUsT: -100}
+			m[a.ID] = t
+		}
+		t.Pos, t.Vel, t.Aim = a.Pos, a.Vel, a.Aim
+		if a.HP != nil {
+			t.HP = *a.HP
+		}
+		if a.MaxHP != nil {
+			t.MaxHP = *a.MaxHP
+		} else if t.MaxHP == 0 {
+			t.MaxHP = 1400
+		}
+		if a.HP == nil && t.HP == 0 {
+			t.HP = t.MaxHP
+		}
+		t.Cubes = a.Cubes
+		t.Weapons = a.Weapons
+		t.Charging = a.Charging
+		t.LastSeen = b.t
+		t.InObs = true
+		if b.w != nil {
+			h := 4.5 * b.scaleOf(a.Cubes)
+			if a.Kind == "npc" {
+				h = 1.75
+			}
+			t.LOS = b.w.ShotLOS(muzzle, Vec3{a.Pos[0], a.Pos[1], a.Pos[2] + h}) ||
+				b.w.ShotLOS(muzzle, Vec3{a.Pos[0], a.Pos[1], a.Pos[2] + h*1.6})
+		} else {
+			t.LOS = true
+		}
+	}
+	for id, t := range b.enemies {
+		if b.t-t.LastSeen > 40 {
+			delete(b.enemies, id)
+		}
+	}
+	for id, t := range b.npcs {
+		if b.t-t.LastSeen > 20 {
+			delete(b.npcs, id)
+		}
+	}
+	// pickups & cubes memory
+	seenP := map[int]bool{}
+	for _, p := range o.Pickups {
+		seenP[p.ID] = true
+		b.pickups[p.ID] = &ItemMem{ID: p.ID, Kind: p.Kind, Pos: p.Pos, Seen: b.t}
+	}
+	seenC := map[int]bool{}
+	for _, c := range o.Cubes {
+		seenC[c.ID] = true
+		b.cubes[c.ID] = &ItemMem{ID: c.ID, Pos: c.Pos, Seen: b.t}
+	}
+	// forget items that should be visible (close) but aren't
+	if b.w != nil {
+		eye := Vec3{b.pos[0], b.pos[1], b.pos[2] + b.eyeH}
+		for id, p := range b.pickups {
+			if !seenP[id] && hdist(p.Pos, b.pos) < 35 && b.w.SightLOS(eye, Vec3{p.Pos[0], p.Pos[1], p.Pos[2] + 0.5}) {
+				delete(b.pickups, id)
+			}
+		}
+		for id, c := range b.cubes {
+			if !seenC[id] && (hdist(c.Pos, b.pos) < 35 && b.w.SightLOS(eye, Vec3{c.Pos[0], c.Pos[1], c.Pos[2] + 0.5}) || b.t-c.Seen > 60) {
+				delete(b.cubes, id)
+			}
+		}
+	}
+	// events
+	for _, e := range o.Events {
+		switch e.Type {
+		case "damaged":
+			b.lastHurtT = b.t
+			if e.Bearing != nil {
+				b.threats = append(b.threats, Threat{Bearing: *e.Bearing, T: b.t, W: 3})
+			}
+			if e.By != nil {
+				if t := b.enemies[int(*e.By)]; t != nil {
+					t.HitUsT = b.t
+				}
+				if t := b.npcs[int(*e.By)]; t != nil {
+					t.HitUsT = b.t
+				}
+			}
+		case "hit":
+			b.lastHitT = b.t
+		case "took":
+			if id, ok := e.ID.(float64); ok {
+				delete(b.pickups, int(id))
+			}
+		case "take_failed":
+			if id, ok := e.ID.(float64); ok {
+				b.failTake[int(id)] = b.t
+				if e.Reason == "gone" || e.Reason == "have" {
+					delete(b.pickups, int(id))
+				}
+			}
+		case "kill":
+			if t := b.enemies[int(e.Target)]; t != nil {
+				delete(b.enemies, int(e.Target))
+			}
+		}
+	}
+	for _, s := range o.Sounds {
+		w := 0.0
+		switch s.Kind {
+		case "gun", "laser", "lightning", "mortar", "laser_charge":
+			w = 2
+		case "step", "boost", "jet", "reload":
+			w = 1.5
+		case "explosion":
+			w = 0.7
+		}
+		if w > 0 {
+			if s.Dist == "near" {
+				w *= 1.5
+			}
+			b.threats = append(b.threats, Threat{Bearing: s.Bearing, T: b.t - s.Age, W: w})
+		}
+	}
+	keep := b.threats[:0]
+	for _, th := range b.threats {
+		if b.t-th.T < 12 {
+			keep = append(keep, th)
+		}
+	}
+	b.threats = keep
+	if len(b.hist) > 30 {
+		b.hist = b.hist[len(b.hist)-30:]
+		b.histMv = b.histMv[len(b.histMv)-30:]
+	}
+}
+
+// ---------------------------------------------------------------- upgrades
+
+var upgradePrio = []string{
+	"armor", "plating", "nanites", "laser_charge", "lightning_efficiency", "laser_damage", "lightning_range",
+	"gun_rate", "gun_damage", "sensors", "lightning_chain", "capacitor", "reactor", "gyros", "servos", "gun_mag",
+	"jets", "gun_velocity", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity",
+}
+
+func (b *Bot) pickUpgrade(act *Action) {
+	of := b.o.Offer
+	if of == nil || len(of.Choices) == 0 {
+		return
+	}
+	best, bestR := 0, 1000
+	for i, c := range of.Choices {
+		r := 500
+		for k, id := range upgradePrio {
+			if id == c.ID {
+				r = k
+				break
+			}
+		}
+		if r < bestR {
+			best, bestR = i, r
+		}
+	}
+	p := best
+	act.Pick = &p
+}
+
+// ---------------------------------------------------------------- weapons / loot
+
+func wval(kind string) float64 {
+	switch kind {
+	case "lightning":
+		return 10
+	case "laser":
+		return 9
+	case "gun":
+		return 6
+	case "mortar":
+		return 1
+	}
+	return 0
+}
+
+// lootGain: improvement from taking kind; returns gain and slot to drop (-1 = empty slot).
+func (b *Bot) lootGain(kind string) (float64, int) {
+	if kind == "mortar" || kind == "" {
+		return 0, -1
+	}
+	for _, w := range b.me.Weapons {
+		if w != nil && w.Kind == kind {
+			return 0, -1
+		}
+	}
+	for i, w := range b.me.Weapons {
+		if w == nil {
+			_ = i
+			return wval(kind), -1
+		}
+	}
+	lo, loI := 1e9, -1
+	for i, w := range b.me.Weapons {
+		if w != nil && wval(w.Kind) < lo {
+			// can't swap a charging laser
+			if w.Kind == "laser" && w.Charge > 0 {
+				continue
+			}
+			lo, loI = wval(w.Kind), i
+		}
+	}
+	if loI >= 0 && wval(kind) > lo+0.5 {
+		return wval(kind) - lo, loI
+	}
+	return 0, -1
+}
+
+func (b *Bot) tryTake(act *Action) {
+	r := b.cfg.Loot.PickupRadius
+	if r == 0 {
+		r = 4
+	}
+	for _, p := range b.o.Pickups {
+		if hdist(p.Pos, b.pos) > r*0.92 || math.Abs(p.Pos[2]-b.pos[2]) > 3.8 {
+			continue
+		}
+		if ft, ok := b.failTake[p.ID]; ok && b.t-ft < 1.0 {
+			continue
+		}
+		g, slot := b.lootGain(p.Kind)
+		if g <= 0 {
+			continue
+		}
+		id := p.ID
+		act.Take = &id
+		if slot >= 0 {
+			s := slot
+			act.Drop = &s
+		}
+		return
+	}
+}
+
+// ---------------------------------------------------------------- main step
+
+func (b *Bot) Act(o *Obs) *Action {
+	b.update(o)
+	act := &Action{Tick: o.Tick}
+	act.Aim = b.me.Aim
+	if b.lastAim != (Vec2{}) {
+		act.Aim = b.lastAim
+	}
+	b.pickUpgrade(act)
+	if b.w == nil {
+		// no map: walk to zone center, shoot nearest
+		c := o.Zone.NextCenter
+		d := norm2(c[0]-b.pos[0], c[1]-b.pos[1])
+		act.Move = d
+		b.fight(act, b.pickTarget())
+		return act
+	}
+
+	tgt := b.pickTarget()
+	b.decideMove(act, tgt)
+	b.fight(act, tgt)
+	b.tryTake(act)
+	b.lastAim = act.Aim
+	b.hist = append(b.hist, b.pos)
+	b.histMv = append(b.histMv, math.Hypot(act.Move[0], act.Move[1]))
+	return act
+}
+
+// ---------------------------------------------------------------- targeting
+
+func (b *Bot) myDPS(d float64) float64 {
+	dps := 0.0
+	for _, w := range b.me.Weapons {
+		if w == nil {
+			continue
+		}
+		switch w.Kind {
+		case "gun":
+			if d < wstat(w, "range", 230) {
+				dps += 90 * math.Max(0.25, 1-d/300)
+			}
+		case "laser":
+			if d < wstat(w, "range", 280) {
+				dps += 120
+			}
+		case "lightning":
+			if d < wstat(w, "range", 45) && b.me.Energy > 6 {
+				dps += 220
+			}
+		}
+	}
+	return math.Max(dps, 1)
+}
+
+func (b *Bot) pickTarget() *Track {
+	var best *Track
+	bestS := math.Inf(1)
+	for _, t := range b.enemies {
+		if !t.InObs {
+			continue
+		}
+		d := dist3(t.Pos, b.pos)
+		s := t.HP/b.myDPS(d) + d/60
+		if !t.LOS {
+			s += 6
+		}
+		if b.t-t.HitUsT < 3 {
+			s -= 1.5
+		}
+		if t.ID == b.targetID {
+			s -= 1.5
+		}
+		if d > 260 {
+			s += 10
+		}
+		if s < bestS {
+			bestS, best = s, t
+		}
+	}
+	if best != nil {
+		b.targetID = best.ID
+	} else {
+		b.targetID = -1
+	}
+	return best
+}
+
+// farmTarget: NPC or crate to shoot when no mechs around.
+type farm struct {
+	pos  Vec3
+	aimZ float64
+	vel  Vec3
+	npc  bool
+	id   int
+}
+
+func (b *Bot) farmTarget() *farm {
+	muzzle := Vec3{b.pos[0], b.pos[1], b.pos[2] + b.mzH}
+	var best *farm
+	bestD := math.Inf(1)
+	for _, t := range b.npcs {
+		if !t.InObs || !t.LOS {
+			continue
+		}
+		d := dist3(t.Pos, b.pos)
+		if d > 110 {
+			continue
+		}
+		if d < bestD {
+			bestD = d
+			best = &farm{pos: t.Pos, aimZ: 1.75, vel: t.Vel, npc: true, id: t.ID}
+		}
+	}
+	if b.t < 330 && b.me.HP > 0.5*b.me.MaxHP {
+		for _, c := range b.o.Crates {
+			d := dist3(c.Pos, b.pos)
+			if d > 80 || d+20 > bestD {
+				continue
+			}
+			if !b.w.ShotLOS(muzzle, Vec3{c.Pos[0], c.Pos[1], c.Pos[2] + 1.2}) {
+				continue
+			}
+			bestD = d
+			best = &farm{pos: c.Pos, aimZ: 1.2, id: c.ID}
+		}
+	}
+	return best
+}
+
+// ---------------------------------------------------------------- aiming & firing
+
+// leadAim returns aim yaw/pitch to hit a target point moving at vel with projectile speed s.
+func leadAim(from, to, vel Vec3, s float64) (float64, float64, float64) {
+	dx, dy, dz := to[0]-from[0], to[1]-from[1], to[2]-from[2]
+	a := vel[0]*vel[0] + vel[1]*vel[1] + vel[2]*vel[2] - s*s
+	bq := 2 * (dx*vel[0] + dy*vel[1] + dz*vel[2])
+	c := dx*dx + dy*dy + dz*dz
+	t := 0.0
+	if math.Abs(a) < 1e-9 {
+		if math.Abs(bq) > 1e-9 {
+			t = -c / bq
+		}
+	} else {
+		disc := bq*bq - 4*a*c
+		if disc >= 0 {
+			sq := math.Sqrt(disc)
+			t1 := (-bq - sq) / (2 * a)
+			t2 := (-bq + sq) / (2 * a)
+			t = math.Inf(1)
+			if t1 > 0 {
+				t = t1
+			}
+			if t2 > 0 && t2 < t {
+				t = t2
+			}
+			if math.IsInf(t, 1) {
+				t = 0
+			}
+		}
+	}
+	if t > 3 {
+		t = 3
+	}
+	px, py, pz := dx+vel[0]*t, dy+vel[1]*t, dz+vel[2]*t
+	return math.Atan2(py, px), math.Atan2(pz, math.Hypot(px, py)), t
+}
+
+func aimErr(cur, want Vec2) (float64, float64) {
+	return math.Abs(wrap(want[0] - cur[0])), math.Abs(want[1] - cur[1])
+}
+
+func (b *Bot) fight(act *Action, tgt *Track) {
+	muzzle := Vec3{b.pos[0], b.pos[1], b.pos[2] + b.mzH}
+	var aimPt, vel Vec3
+	var tRad, tHalfH float64
+	have := false
+	los := false
+	isMech := false
+	if tgt != nil {
+		sc := b.scaleOf(tgt.Cubes)
+		aimPt = Vec3{tgt.Pos[0], tgt.Pos[1], tgt.Pos[2] + 4.5*sc}
+		vel = tgt.Vel
+		tRad, tHalfH = 2.5*sc, 4.5*sc
+		have, los, isMech = true, tgt.LOS, true
+	} else if f := b.farmTarget(); f != nil && b.mode != "zone" {
+		aimPt = Vec3{f.pos[0], f.pos[1], f.pos[2] + f.aimZ}
+		vel = f.vel
+		tRad, tHalfH = 1.4, 1.2
+		if f.npc {
+			tRad, tHalfH = 1.8, 1.75
+		}
+		have, los = true, true
+	}
+	_ = isMech
+	if !have {
+		// scan for threats
+		act.Aim = Vec2{b.scanYaw(act), 0}
+		b.idleReload(act)
+		b.holdLaser(act, false)
+		return
+	}
+	d := dist3(aimPt, muzzle)
+	gun, gi := b.weapon("gun")
+	las, li := b.weapon("laser")
+	lit, ti := b.weapon("lightning")
+
+	// choose aim: laser charging/ready gets hitscan aim; else lightning if close; else gun lead
+	hitYaw := bearing(muzzle, aimPt)
+	hitPitch := math.Atan2(aimPt[2]-muzzle[2], math.Hypot(aimPt[0]-muzzle[0], aimPt[1]-muzzle[1]))
+	// hitscan aim at the position after ~1 tick
+	p1 := Vec3{aimPt[0] + vel[0]*0.05, aimPt[1] + vel[1]*0.05, aimPt[2] + vel[2]*0.05}
+	scanYaw := bearing(muzzle, p1)
+	scanPitch := math.Atan2(p1[2]-muzzle[2], math.Hypot(p1[0]-muzzle[0], p1[1]-muzzle[1]))
+	want := Vec2{hitYaw, hitPitch}
+	laserActive := las != nil && d < wstat(las, "range", 280) && (las.Charge > 0 || las.Cooldown < 0.3)
+	litActive := lit != nil && d < wstat(lit, "range", 45)*1.1
+	if laserActive || litActive {
+		want = Vec2{scanYaw, scanPitch}
+	} else if gun != nil {
+		spd := wstat(gun, "speed", 252)
+		y, p, _ := leadAim(Vec3{muzzle[0], muzzle[1], muzzle[2]}, aimPt, vel, spd)
+		want = Vec2{y, p}
+	}
+	minP := b.mechf("min_pitch", -0.7)
+	maxP := b.mechf("max_pitch", 1.3)
+	want[1] = clampf(want[1], minP, maxP)
+	act.Aim = want
+	cur := b.me.Aim
+
+	// gun
+	if gun != nil {
+		spd := wstat(gun, "speed", 252)
+		y, p, _ := leadAim(muzzle, aimPt, vel, spd)
+		ey, ep := aimErr(cur, Vec2{y, p})
+		tolY := math.Atan2(tRad*0.85, d) + 0.004
+		tolP := math.Atan2(tHalfH*0.8, d) + 0.004
+		if los && d < wstat(gun, "range", 230)*0.97 && ey < tolY && ep < tolP {
+			act.Fire[gi] = true
+		}
+		if gun.Ammo != nil && *gun.Ammo == 0 && gun.Reload == 0 {
+			act.Reload = true
+		}
+	}
+	// lightning
+	if lit != nil {
+		cone := wstat(lit, "cone_deg", 30) * math.Pi / 180
+		rng := wstat(lit, "range", 45)
+		ey, _ := aimErr(cur, Vec2{hitYaw, 0})
+		cost := wstat(lit, "energy", 3)
+		reserve := 0.0
+		if tgt == nil {
+			reserve = 40 // farming: keep energy
+		}
+		if los && d < rng*0.93 && ey < cone*0.35 && b.me.Energy >= cost+reserve {
+			act.Fire[ti] = true
+		}
+	}
+	// laser
+	if las != nil {
+		rng := wstat(las, "range", 280)
+		full := wstat(las, "charge", 0.75)
+		ey, ep := aimErr(cur, Vec2{hitYaw, hitPitch})
+		tolY := math.Atan2(tRad*0.7, d) + 0.002
+		tolP := math.Atan2(tHalfH*0.7, d) + 0.002
+		inRange := d < rng*0.97
+		if las.Charge > 0 {
+			if las.Charge >= full*0.97 && los && inRange && ey < tolY && ep < tolP {
+				act.Fire[li] = false // release: fires now
+			} else {
+				act.Fire[li] = true
+			}
+		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) {
+			act.Fire[li] = true
+		}
+	}
+}
+
+func (b *Bot) holdLaser(act *Action, _ bool) {
+	if las, li := b.weapon("laser"); las != nil && las.Charge > 0 {
+		act.Fire[li] = true // keep holding until a target shows up (auto-fires after hold_s)
+	}
+}
+
+func (b *Bot) idleReload(act *Action) {
+	if gun, _ := b.weapon("gun"); gun != nil && gun.Ammo != nil && gun.Reload == 0 {
+		mag := wstat(gun, "mag", 12)
+		if *gun.Ammo < mag*0.6 && b.t-b.lastHitT > 2 {
+			act.Reload = true
+		}
+	}
+}
+
+func (b *Bot) scanYaw(act *Action) float64 {
+	// look toward the most recent weighted threat bearing, else along movement, sweeping
+	var sx, sy float64
+	for _, th := range b.threats {
+		w := th.W * math.Max(0, 1-(b.t-th.T)/12)
+		sx += math.Cos(th.Bearing) * w
+		sy += math.Sin(th.Bearing) * w
+	}
+	// remembered enemies not in view
+	for _, t := range b.enemies {
+		if b.t-t.LastSeen < 20 {
+			w := 2 * math.Max(0, 1-(b.t-t.LastSeen)/20)
+			a := bearing(b.pos, t.Pos)
+			sx += math.Cos(a) * w
+			sy += math.Sin(a) * w
+		}
+	}
+	base := 0.0
+	amp := 1.0
+	if math.Hypot(sx, sy) > 0.5 {
+		base = math.Atan2(sy, sx)
+		amp = 0.6
+	} else if math.Hypot(act.Move[0], act.Move[1]) > 0.1 {
+		base = math.Atan2(act.Move[1], act.Move[0])
+		amp = 1.3
+	} else {
+		c := b.o.Zone.NextCenter
+		base = math.Atan2(c[1]-b.pos[1], c[0]-b.pos[0])
+		amp = 2.2
+	}
+	return wrap(base + amp*math.Sin(b.t*1.1))
+}

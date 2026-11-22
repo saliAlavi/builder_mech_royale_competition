@@ -1,0 +1,11 @@
+.git
+sim
+out
+tools
+kit/check
+kit/python
+kit/ts
+kit/*.md
+kit/*.json
+*.md
+mechbot
