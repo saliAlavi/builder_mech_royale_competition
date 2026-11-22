@@ -31,6 +31,10 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"wv_lightning":   10, // weapon values for loadout choices
+	"wv_laser":       9,
+	"wv_gun":         6,
+	"jet_in_danger":  0,    // allow jet-climb paths while enemies are around
 	"regen_hold":     0,    // when hurt and out of contact, hold a sheltered spot to regenerate
 	"regen_hold_hp":  0.75, // ... below this HP fraction
 	"fight_pos":      1,    // seek spots that hide us from all but the target when 2+ enemies see us

@@ -474,11 +474,11 @@ func (b *Bot) pickUpgrade(act *Action) {
 func wval(kind string) float64 {
 	switch kind {
 	case "lightning":
-		return 10
+		return P["wv_lightning"]
 	case "laser":
-		return 9
+		return P["wv_laser"]
 	case "gun":
-		return 6
+		return P["wv_gun"]
 	case "mortar":
 		return 1
 	}

@@ -536,7 +536,7 @@ func (b *Bot) findCover(cx, cy float64) (Vec3, bool) {
 		for k := 0; k < 14; k++ {
 			a := float64(k)/14*2*math.Pi + b.rng.Float64()*0.3
 			x, y := b.pos[0]+math.Cos(a)*ring, b.pos[1]+math.Sin(a)*ring
-			id := b.nav.nearestOK(x, y, b.pos[2], 3, false)
+			id := b.nav.nearestOK(x, y, b.pos[2], 3, true)
 			if id < 0 {
 				continue
 			}
@@ -690,6 +690,9 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 			g = b.nav.nearestOK(goal[0], goal[1], goal[2], 30, true)
 		}
 		b.nav.JetMax = math.Min(40, (b.me.MaxEnergy-8)/1.6+2.5)
+		if b.recentDanger() && P["jet_in_danger"] == 0 {
+			b.nav.JetMax = 0 // hovering up a wall next to enemies is suicide
+		}
 		b.nav.NonMainMult = float32(P["nav_nonmain"])
 		b.nav.JetRiseCost = float32(P["nav_jet_rise"])
 		b.nav.JetFixedCost = float32(P["nav_jet_fixed"])
@@ -768,7 +771,7 @@ func (b *Bot) antiStuck(act *Action) {
 	if b.t < b.unstuckT {
 		act.Move = b.unstuckD
 		act.Jump = b.me.Grounded
-		if b.me.Energy > 10 {
+		if b.me.Energy > 10 && !b.recentDanger() {
 			act.Boost = true
 		}
 		return
@@ -838,6 +841,6 @@ func (b *Bot) antiStuck(act *Action) {
 		b.histMv = b.histMv[:0]
 		act.Move = b.unstuckD
 		act.Jump = b.me.Grounded
-		act.Boost = b.me.Energy > 10
+		act.Boost = b.me.Energy > 10 && !b.recentDanger()
 	}
 }
