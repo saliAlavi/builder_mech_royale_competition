@@ -76,6 +76,7 @@ type Bot struct {
 	unstuckT float64
 	unstuckD Vec2
 	stuckN   int
+	jetting  bool
 
 	// combat
 	targetID    int

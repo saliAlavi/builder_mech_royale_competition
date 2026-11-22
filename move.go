@@ -186,6 +186,9 @@ func (b *Bot) strategicGoal() Vec3 {
 		rr := math.Sqrt(b.rng.Float64()) * R
 		x, y := c[0]+math.Cos(a)*rr, c[1]+math.Sin(a)*rr
 		id := b.nav.nearestOK(x, y, 0, 6, true)
+		if id < 0 && k >= 40 && bestID < 0 {
+			id = b.nav.nearestOK(x, y, 0, 6, false)
+		}
 		if id < 0 {
 			continue
 		}
@@ -459,10 +462,14 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 	}
 	if replan {
 		s := b.nav.nearestOK(b.pos[0], b.pos[1], b.pos[2], 8, false)
-		g := b.nav.nearestOK(goal[0], goal[1], goal[2], 14, true)
+		g := b.nav.nearestOK(goal[0], goal[1], goal[2], 6, true)
+		if g < 0 {
+			g = b.nav.nearestOK(goal[0], goal[1], goal[2], 14, false)
+		}
 		if g < 0 {
 			g = b.nav.nearestOK(goal[0], goal[1], goal[2], 30, true)
 		}
+		b.nav.JetMax = math.Min(40, (b.me.MaxEnergy-8)/1.6+2.5)
 		b.path = nil
 		if s >= 0 && g >= 0 {
 			b.path = b.nav.FindPath(s, g, 60000, nil)
@@ -486,6 +493,29 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 		}
 	}
 	b.pathIdx = bestI
+	b.jetting = false
+	if bestI+1 < len(b.path) && b.nav.IsJet(b.path[bestI], b.path[bestI+1]) {
+		top := b.nav.pos(b.path[bestI+1])
+		base := b.nav.pos(b.path[bestI])
+		rise := top[2] - base[2]
+		dir := norm2(top[0]-b.pos[0], top[1]-b.pos[1])
+		if act != nil {
+			b.jetting = true
+			if b.pos[2] < top[2]+0.8 {
+				if b.me.Grounded {
+					if b.me.Energy < rise*1.6+8 && hdist(base, b.pos) < 6 {
+						return Vec2{} // wait for energy at the foot of the climb
+					}
+					if hdist(top, b.pos) < 9 {
+						act.Jump = true
+					}
+				} else {
+					act.Boost = true
+				}
+			}
+		}
+		return dir
+	}
 	tgtI := bestI + 1
 	if tgtI >= len(b.path) {
 		tgtI = len(b.path) - 1
@@ -507,6 +537,11 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 
 // antiStuck: detect no progress while commanding movement; jump/jet and jiggle.
 func (b *Bot) antiStuck(act *Action) {
+	if b.jetting {
+		b.hist = b.hist[:0]
+		b.histMv = b.histMv[:0]
+		return
+	}
 	if b.t < b.unstuckT {
 		act.Move = b.unstuckD
 		act.Jump = b.me.Grounded

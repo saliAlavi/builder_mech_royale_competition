@@ -140,10 +140,10 @@ type Sound struct {
 }
 
 type Beam struct {
-	By   int       `json:"by"`
-	Kind string    `json:"kind"`
-	Path []Vec3    `json:"path"`
-	Age  float64   `json:"age"`
+	By   int     `json:"by"`
+	Kind string  `json:"kind"`
+	Path []Vec3  `json:"path"`
+	Age  float64 `json:"age"`
 }
 
 type Event struct {
@@ -213,14 +213,14 @@ type Obs struct {
 }
 
 type Action struct {
-	Tick   float64  `json:"tick"`
-	Move   Vec2     `json:"move"`
-	Boost  bool     `json:"boost,omitempty"`
-	Jump   bool     `json:"jump,omitempty"`
-	Aim    Vec2     `json:"aim"`
-	Fire   [2]bool  `json:"fire"`
-	Reload bool     `json:"reload,omitempty"`
-	Pick   *int     `json:"pick,omitempty"`
-	Take   *int     `json:"take,omitempty"`
-	Drop   *int     `json:"drop,omitempty"`
+	Tick   float64 `json:"tick"`
+	Move   Vec2    `json:"move"`
+	Boost  bool    `json:"boost,omitempty"`
+	Jump   bool    `json:"jump,omitempty"`
+	Aim    Vec2    `json:"aim"`
+	Fire   [2]bool `json:"fire"`
+	Reload bool    `json:"reload,omitempty"`
+	Pick   *int    `json:"pick,omitempty"`
+	Take   *int    `json:"take,omitempty"`
+	Drop   *int    `json:"drop,omitempty"`
 }

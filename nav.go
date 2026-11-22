@@ -32,6 +32,14 @@ type Nav struct {
 	stamp    []uint32
 	closed   []uint32
 	gen      uint32
+	Jet      map[int32][]jetEdge // jump/jet climbs onto higher surfaces
+	JetMax   float64             // max rise allowed in the current search (set by caller)
+}
+
+type jetEdge struct {
+	to   int32
+	rise float32
+	dist float32
 }
 
 func buildNav(w *World) *Nav {
@@ -128,7 +136,67 @@ func buildNav(w *World) *Nav {
 		comp++
 	}
 	nav.MainComp = best
+	nav.buildJets()
+	nav.JetMax = 30
 	return nav
+}
+
+// buildJets: from each OK node, look up to 10 m in 8 directions for the first OK node on a
+// surface more than step_up higher with nothing taller in between: a jump+jet climb.
+func (n *Nav) buildJets() {
+	n.Jet = map[int32][]jetEdge{}
+	w := n.w
+	for a := 0; a < len(n.OK); a++ {
+		if !n.OK[a] {
+			continue
+		}
+		au, av := a%n.NU, a/n.NU
+		ha := n.H[a]
+		for k := 0; k < 8; k++ {
+			// only bother if the direct neighbour isn't a normal step
+			for st := 2; st <= 5; st++ {
+				bu, bv := au+dU[k]*st, av+dV[k]*st
+				b := n.id(bu, bv)
+				if b < 0 {
+					break
+				}
+				if !n.OK[b] {
+					continue
+				}
+				hb := n.H[b]
+				rise := hb - ha
+				if rise <= stepUp+0.05 || rise > 45 {
+					break
+				}
+				// nothing taller than the destination along the way
+				clear := true
+				ax, ay := float64(au*navStride), float64(av*navStride)
+				bx, by := float64(bu*navStride), float64(bv*navStride)
+				steps := st * navStride
+				for q := 1; q < steps; q++ {
+					f := float64(q) / float64(steps)
+					i := int(ax + (bx-ax)*f + 0.5)
+					j := int(ay + (by-ay)*f + 0.5)
+					if i < 0 || j < 0 || i >= w.NX || j >= w.NY || w.Surf[j*w.NX+i] > hb+0.6 {
+						clear = false
+						break
+					}
+				}
+				if clear {
+					d := float32(math.Hypot(bx-ax, by-ay))
+					n.Jet[int32(a)] = append(n.Jet[int32(a)], jetEdge{int32(b), rise, d})
+				}
+				break
+			}
+		}
+	}
+}
+
+// IsJet: is the step a->b a jet climb (non-adjacent nodes)?
+func (n *Nav) IsJet(a, b int) bool {
+	du := a%n.NU - b%n.NU
+	dv := a/n.NU - b/n.NU
+	return du > 1 || du < -1 || dv > 1 || dv < -1
 }
 
 // 8 directions; k and (k+4)%8 are opposite.
@@ -311,6 +379,23 @@ func (n *Nav) FindPath(s, t int, maxExp int, extra func(id int) float32) []int {
 				c += dh * 0.3
 			}
 			ng := ga + c
+			if n.stamp[b] != gen || ng < n.g[b] {
+				n.stamp[b] = gen
+				n.g[b] = ng
+				n.par[b] = int32(a)
+				heap.Push(open, pqItem{int32(b), ng + hfun(b)})
+			}
+		}
+		for _, e := range n.Jet[int32(a)] {
+			if float64(e.rise) > n.JetMax {
+				continue
+			}
+			b := int(e.to)
+			if n.closed[b] == gen {
+				continue
+			}
+			// jets are loud and slow: cost distance + 3 per metre climbed + fixed 25
+			ng := ga + e.dist + 3*e.rise + 25 + n.Pen[b]*navStride
 			if n.stamp[b] != gen || ng < n.g[b] {
 				n.stamp[b] = gen
 				n.g[b] = ng

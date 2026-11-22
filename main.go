@@ -146,7 +146,11 @@ func main() {
 					}
 				}()
 				if bot != nil {
+					ts := time.Now()
 					act = bot.Act(&o)
+					if el := time.Since(ts); el > 15*time.Millisecond {
+						logf("slow act tick %v: %v mode=%s", o.Tick, el, bot.mode)
+					}
 				}
 			}()
 			if act == nil {
