@@ -102,12 +102,6 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		if g, ok := b.lootGoal(); ok {
 			b.mode = "loot"
 			dir = b.navTo(g, act)
-			if !b.recentDanger() {
-				speed = math.Max(b.quietMag(), math.Min(1, reqSpeed/b.walkSpeed()*1.5))
-				if b.t < 60 {
-					speed = 1 // early loot race
-				}
-			}
 		} else {
 			g := b.strategicGoal()
 			dir = b.navTo(g, act)
