@@ -664,7 +664,7 @@ func (b *Bot) pickTarget() *Track {
 		d := dist3(t.Pos, b.pos)
 		s := t.HP/b.myDPS(d) + d/60
 		if !t.LOS {
-			s += 6
+			s += P["nolos_pen"]
 		}
 		if b.t-t.HitUsT < 3 {
 			s -= 1.5

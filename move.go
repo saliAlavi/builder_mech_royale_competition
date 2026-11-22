@@ -113,7 +113,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 			dir = b.steerClear(dir)
 		}
 		// weave: unpredictable lateral component so pursuers can't lead us
-		if zz := P["retreat_zz"]; zz > 0 && dir != (Vec2{}) && !b.jetting {
+		if zz := P["retreat_zz"]; zz > 0 && dir != (Vec2{}) && !b.jetting && float64(nThreat) < P["weave_max_n"] {
 			if b.t > b.strafeUntil {
 				b.strafe = -b.strafe
 				b.strafeUntil = b.t + 0.35 + b.rng.Float64()*0.4
@@ -153,6 +153,21 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 			if P["quiet"] > 0 && !b.recentDanger() && reqSpeed < 0.35*b.walkSpeed() && hdist(g, b.pos) < 60 {
 				speed = b.quietMag()
 			}
+		}
+	}
+	// grab a cube lying right next to us even mid-fight (kills drop cubes: +HP, +damage, upgrades)
+	if cg := P["cube_grab_m"]; cg > 0 && (b.mode == "fight" || b.mode == "retreat" || b.mode == "wary") {
+		bestD := cg
+		var best *ItemMem
+		for _, c := range b.cubes {
+			d := hdist(c.Pos, b.pos)
+			if d < bestD && math.Abs(c.Pos[2]-b.pos[2]) < 4 && b.nav.lineClear(b.pos[0], b.pos[1], b.pos[2], c.Pos[0], c.Pos[1]) {
+				bestD, best = d, c
+			}
+		}
+		if best != nil {
+			dir = norm2(best.Pos[0]-b.pos[0], best.Pos[1]-b.pos[1])
+			speed = 1
 		}
 	}
 	// laser charging halves speed anyway; don't bother
@@ -563,7 +578,8 @@ func (b *Bot) findCover(cx, cy float64) (Vec3, bool) {
 	if P["evade_n"] < 50 {
 		maxRing = P["cover_max_m"]
 	}
-	for ring := 10.0; ring <= maxRing; ring += 8 {
+	step := P["cover_ring_step"]
+	for ring := P["cover_min_ring"]; ring <= maxRing; ring += step {
 		for k := 0; k < 14; k++ {
 			a := float64(k)/14*2*math.Pi + b.rng.Float64()*0.3
 			x, y := b.pos[0]+math.Cos(a)*ring, b.pos[1]+math.Sin(a)*ring
@@ -581,9 +597,9 @@ func (b *Bot) findCover(cx, cy float64) (Vec3, bool) {
 					seen++
 				}
 			}
-			s := ring + 40*float64(seen)
+			s := P["cover_ring_w"]*ring + 40*float64(seen)
 			// prefer away from threats
-			s -= 0.3 * math.Hypot(p[0]-cx, p[1]-cy)
+			s -= P["cover_away_w"] * math.Hypot(p[0]-cx, p[1]-cy)
 			if s < bestS {
 				bestS, best, ok = s, p, true
 			}
