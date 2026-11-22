@@ -10,9 +10,9 @@ import (
 )
 
 var P = map[string]float64{
-	"retreat_hp":     0.30, // retreat below this HP fraction when any enemy is near
-	"retreat_hp2":    0.42, // ... when 2+ enemies
-	"retreat_hp3":    0.60, // ... when 3+ enemies
+	"retreat_hp":     0.45, // retreat below this HP fraction when any enemy is near
+	"retreat_hp2":    0.60, // ... when 2+ enemies
+	"retreat_hp3":    0.75, // ... when 3+ enemies
 	"retreat_exit":   0.80, // stop retreating above this
 	"aggr_hp":        0.55, // aggressive (close in) only above this HP fraction
 	"pref_lightning": 26,
@@ -31,6 +31,9 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"evade_n":        3,  // break contact when this many enemies are known nearby
+	"evade_n_1w":     99, // ... same, while holding a single weapon
+	"cover_max_m":    66,
 	"engage_m":       400, // only open fire on mechs within this range (unless shot at / target weak)
 }
 

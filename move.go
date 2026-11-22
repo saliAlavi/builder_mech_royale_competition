@@ -42,6 +42,25 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		cx /= float64(nThreat)
 		cy /= float64(nThreat)
 	}
+	// evade: outnumbered by recently-known enemies (squads converge) -> break contact
+	nKnown := 0
+	var kx, ky float64
+	for _, t := range b.enemies {
+		if b.t-t.LastSeen < 4 && hdist(t.Pos, b.pos) < 230 {
+			nKnown++
+			kx += t.Pos[0]
+			ky += t.Pos[1]
+		}
+	}
+	evN := P["evade_n"]
+	if b.me.Weapons[0] == nil || b.me.Weapons[1] == nil {
+		evN = math.Min(evN, P["evade_n_1w"])
+	}
+	evade := float64(nKnown) >= evN
+	if evade && nThreat == 0 {
+		cx, cy = kx/float64(nKnown), ky/float64(nKnown)
+		nThreat = nKnown
+	}
 	hp := b.hpFrac()
 	if b.retreat {
 		if hp > P["retreat_exit"] || (nThreat == 0 && b.t-b.lastHurtT > 8 && hp > 0.6) {
@@ -76,7 +95,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 				act.Boost = true
 			}
 		}
-	case b.retreat && nThreat > 0:
+	case (b.retreat && nThreat > 0) || evade:
 		b.mode = "retreat"
 		if !b.coverOK || b.t-b.coverT > 1.5 {
 			b.cover, b.coverOK = b.findCover(cx, cy)
@@ -378,7 +397,11 @@ func (b *Bot) findCover(cx, cy float64) (Vec3, bool) {
 	bestS := math.Inf(1)
 	var best Vec3
 	ok := false
-	for ring := 10.0; ring <= 50; ring += 8 {
+	maxRing := 50.0
+	if P["evade_n"] < 50 {
+		maxRing = P["cover_max_m"]
+	}
+	for ring := 10.0; ring <= maxRing; ring += 8 {
 		for k := 0; k < 14; k++ {
 			a := float64(k)/14*2*math.Pi + b.rng.Float64()*0.3
 			x, y := b.pos[0]+math.Cos(a)*ring, b.pos[1]+math.Sin(a)*ring
