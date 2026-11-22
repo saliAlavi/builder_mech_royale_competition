@@ -30,7 +30,9 @@ var P = map[string]float64{
 	"w_cover":        0.9,
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
-	"take_mortar":    0,
+	"take_mortar":    1,
+	"early_quiet_m":  0,    // while evading early (t < early_evade_t), hold fire beyond this range (0 = off)
+	"mortar_min_m":   30,   // don't lob shells at targets closer than this (own splash)
 	"laser_tol":      0.7,  // release the laser when aim error < this x target radius
 	"gun_tol":        1.4,  // fire the gun when aim error < this x target radius (and half-height)
 	"lit_cone":       0.35, // fire lightning when yaw error < this x cone_deg

@@ -771,6 +771,58 @@ func leadAim(from, to, vel Vec3, s float64) (float64, float64, float64) {
 	return math.Atan2(py, px), math.Atan2(pz, math.Hypot(px, py)), t
 }
 
+// mortarSolve: yaw/pitch to land a shell (speed v, gravity g) launched from `from` on a target at
+// pos moving at vel (horizontal), trying the low arc then the high arc; checks the arc is clear.
+func (b *Bot) mortarSolve(from, pos, vel Vec3, v, g float64) (float64, float64, bool) {
+	tf := 1.5
+	for _, high := range []bool{false, true} {
+		var yaw, pitch float64
+		ok := false
+		for it := 0; it < 4; it++ {
+			p := Vec3{pos[0] + vel[0]*tf, pos[1] + vel[1]*tf, pos[2]}
+			p[2] = math.Max(p[2], b.w.SurfAt(p[0], p[1])) + 1
+			dx := math.Hypot(p[0]-from[0], p[1]-from[1])
+			dz := p[2] - from[2]
+			disc := v*v*v*v - g*(g*dx*dx+2*dz*v*v)
+			if disc < 0 || dx < 1 {
+				ok = false
+				break
+			}
+			sq := math.Sqrt(disc)
+			tan := (v*v - sq) / (g * dx)
+			if high {
+				tan = (v*v + sq) / (g * dx)
+			}
+			pitch = math.Atan(tan)
+			yaw = math.Atan2(p[1]-from[1], p[0]-from[0])
+			tf = dx / (v * math.Cos(pitch))
+			ok = true
+		}
+		if !ok || pitch > b.mechf("max_pitch", 1.3) || pitch < b.mechf("min_pitch", -0.7) {
+			continue
+		}
+		// trace the arc: must not hit geometry before ~85% of the flight
+		cx, cy, cz := from[0], from[1], from[2]
+		vx, vy, vz := v*math.Cos(pitch)*math.Cos(yaw), v*math.Cos(pitch)*math.Sin(yaw), v*math.Sin(pitch)
+		clear := true
+		dt := 0.05
+		for t := 0.0; t < tf*0.85; t += dt {
+			cx += vx * dt
+			cy += vy * dt
+			cz += vz * dt
+			vz -= g * dt
+			if b.w.solidAt(cx, cy, cz) {
+				clear = false
+				break
+			}
+		}
+		if clear {
+			return yaw, pitch, true
+		}
+	}
+	return 0, 0, false
+}
+
 func aimErr(cur, want Vec2) (float64, float64) {
 	return math.Abs(wrap(want[0] - cur[0])), math.Abs(want[1] - cur[1])
 }
@@ -839,11 +891,27 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		y, p, _ := leadAim(Vec3{muzzle[0], muzzle[1], muzzle[2]}, aimPt, vel, spd)
 		want = Vec2{y, p}
 	}
+	// mortar: if loaded and the laser isn't about to fire, swing to the ballistic solution
+	mor, mi := b.weapon("mortar")
+	morYaw, morPitch, morOK := 0.0, 0.0, false
+	if mor != nil && tgt != nil && d > P["mortar_min_m"] && mor.Cooldown <= 0.3 && !(las != nil && las.Charge > 0) {
+		tube := Vec3{b.pos[0], b.pos[1], b.pos[2] + b.mechf("height", 9)*b.scaleOf(b.me.Cubes) + 0.5}
+		morYaw, morPitch, morOK = b.mortarSolve(tube, tgt.Pos, tgt.SVel, wstat(mor, "speed", 72), wstat(mor, "gravity", 22))
+		if morOK {
+			want = Vec2{morYaw, morPitch}
+		}
+	}
 	minP := b.mechf("min_pitch", -0.7)
 	maxP := b.mechf("max_pitch", 1.3)
 	want[1] = clampf(want[1], minP, maxP)
 	act.Aim = want
 	cur := b.me.Aim
+	if morOK && mor.Cooldown <= 0.05 {
+		ey, ep := aimErr(cur, Vec2{morYaw, morPitch})
+		if ey < 0.03 && ep < 0.03 {
+			act.Fire[mi] = true
+		}
+	}
 
 	// gun
 	if gun != nil {
@@ -853,6 +921,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		tolY := math.Atan2(tRad*P["gun_tol"], d) + 0.004
 		tolP := math.Atan2(tHalfH*P["gun_tol"], d) + 0.004
 		quiet := b.mode == "retreat" && P["retreat_gun_m"] > 0 && d > P["retreat_gun_m"]
+		quiet = quiet || b.earlyQuiet(d)
 		if los && d < wstat(gun, "range", 230)*0.97 && ey < tolY && ep < tolP && !quiet {
 			act.Fire[gi] = true
 		}
@@ -890,12 +959,18 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 			} else {
 				act.Fire[li] = true
 			}
-		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) && !b.fleeing() {
+		} else if los && inRange && las.Cooldown <= 0.05 && (tgt != nil || d < 120) && !b.fleeing() && !b.earlyQuiet(d) {
 			act.Fire[li] = true
 		} else if P["laser_pre"] > 0 && !los && tgt != nil && d < rng*0.8 && las.Cooldown <= 0.05 && !b.fleeing() {
 			act.Fire[li] = true // pre-charge: ready to fire the moment it steps into view
 		}
 	}
+}
+
+// earlyQuiet: slipping away from a spawn contact -- don't give our position away with shots
+// at anything not already close.
+func (b *Bot) earlyQuiet(d float64) bool {
+	return P["early_quiet_m"] > 0 && b.t < P["early_evade_t"] && b.mode == "retreat" && d > P["early_quiet_m"]
 }
 
 // fleeing: modes where half-speed laser charging costs us (running away / racing the zone).
