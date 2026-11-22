@@ -358,6 +358,11 @@ func (b *Bot) combatMove(tgt *Track, nThreat int) Vec2 {
 		}
 		pref = d
 	}
+	if P["fight_pos"] > 0 {
+		if dir, ok := b.cornerSpot(tgt); ok {
+			return dir
+		}
+	}
 	if b.t > b.strafeUntil {
 		if b.rng.Float64() < 0.6 {
 			b.strafe = -b.strafe
@@ -382,6 +387,68 @@ func (b *Bot) combatMove(tgt *Track, nThreat int) Vec2 {
 		b.strafe = -b.strafe
 	}
 	return nd
+}
+
+// cornerSpot: with 2+ enemies able to see us, find a nearby spot that keeps a shot on tgt but
+// hides us from the others (fight one at a time). Re-evaluated every 0.8 s.
+func (b *Bot) cornerSpot(tgt *Track) (Vec2, bool) {
+	sc := b.scaleOf(b.me.Cubes)
+	var others []Vec3
+	for _, t := range b.enemies {
+		if !t.InObs || t.ID == tgt.ID || hdist(t.Pos, b.pos) > 220 {
+			continue
+		}
+		others = append(others, Vec3{t.Pos[0], t.Pos[1], t.Pos[2] + 8*b.scaleOf(t.Cubes)})
+	}
+	if len(others) == 0 {
+		b.cornerOK = false
+		return Vec2{}, false
+	}
+	seenBy := func(p Vec3) int {
+		n := 0
+		for _, e := range others {
+			if b.w.SightLOS(e, Vec3{p[0], p[1], p[2] + 4.5*sc}) || b.w.SightLOS(e, Vec3{p[0], p[1], p[2] + 9*sc}) {
+				n++
+			}
+		}
+		return n
+	}
+	tc := Vec3{tgt.Pos[0], tgt.Pos[1], tgt.Pos[2] + 4.5*b.scaleOf(tgt.Cubes)}
+	if b.t-b.cornerT > 0.8 {
+		b.cornerT = b.t
+		cur := seenBy(b.pos)
+		if cur == 0 {
+			b.cornerOK = false
+			return Vec2{}, false
+		}
+		bestS := float64(cur)*10 + 0.5
+		found := false
+		for _, r := range []float64{6, 11, 16} {
+			for k := 0; k < 12; k++ {
+				a := float64(k)/12*2*math.Pi + b.rng.Float64()*0.2
+				x, y := b.pos[0]+math.Cos(a)*r, b.pos[1]+math.Sin(a)*r
+				if !b.nav.lineClear(b.pos[0], b.pos[1], b.pos[2], x, y) {
+					continue
+				}
+				p := Vec3{x, y, b.w.SurfAt(x, y)}
+				if !b.insideAt(p, b.t+5, 4) {
+					continue
+				}
+				if !b.w.ShotLOS(Vec3{p[0], p[1], p[2] + b.mzH}, tc) {
+					continue
+				}
+				sc := float64(seenBy(p))*10 + r/6
+				if sc < bestS {
+					bestS, b.corner, found = sc, p, true
+				}
+			}
+		}
+		b.cornerOK = found
+	}
+	if !b.cornerOK || hdist(b.corner, b.pos) < 1.5 {
+		return Vec2{}, false
+	}
+	return norm2(b.corner[0]-b.pos[0], b.corner[1]-b.pos[1]), true
 }
 
 // steerClear rotates dir until the next few metres are walkable.
@@ -573,6 +640,9 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 			g = b.nav.nearestOK(goal[0], goal[1], goal[2], 30, true)
 		}
 		b.nav.JetMax = math.Min(40, (b.me.MaxEnergy-8)/1.6+2.5)
+		b.nav.NonMainMult = float32(P["nav_nonmain"])
+		b.nav.JetRiseCost = float32(P["nav_jet_rise"])
+		b.nav.JetFixedCost = float32(P["nav_jet_fixed"])
 		b.path = nil
 		if s >= 0 && g >= 0 {
 			b.path = b.nav.FindPath(s, g, 60000, nil)
@@ -676,7 +746,7 @@ func (b *Bot) antiStuck(act *Action) {
 				recent++
 			}
 		}
-		if recent >= 3 {
+		if recent >= 3 && P["stuck_esc"] > 0 {
 			// repeatedly stuck: head for the nearest ground-network node (drop off whatever we're on)
 			b.stuckTimes = b.stuckTimes[:0]
 			if id := b.nav.nearestOK(b.pos[0], b.pos[1], 1e4, 40, true); id >= 0 {

@@ -34,6 +34,8 @@ type Nav struct {
 	gen      uint32
 	Jet      map[int32][]jetEdge // jump/jet climbs onto higher surfaces
 	JetMax   float64             // max rise allowed in the current search (set by caller)
+	// cost knobs (set by caller from params)
+	NonMainMult, JetRiseCost, JetFixedCost float32
 }
 
 type jetEdge struct {
@@ -138,6 +140,7 @@ func buildNav(w *World) *Nav {
 	nav.MainComp = best
 	nav.buildJets()
 	nav.JetMax = 30
+	nav.NonMainMult, nav.JetRiseCost, nav.JetFixedCost = 1, 3, 25
 	return nav
 }
 
@@ -372,7 +375,7 @@ func (n *Nav) FindPath(s, t int, maxExp int, extra func(id int) float32) []int {
 			}
 			c := stepCost[k] * navStride * (1 + n.Pen[b])
 			if n.Comp[b] != n.MainComp {
-				c *= 2.5 // roofs / stadium stands: only when needed
+				c *= n.NonMainMult // roofs / stadium stands
 			}
 			if extra != nil {
 				c *= 1 + extra(b)
@@ -398,7 +401,7 @@ func (n *Nav) FindPath(s, t int, maxExp int, extra func(id int) float32) []int {
 				continue
 			}
 			// jets are loud and slow: cost distance + 3 per metre climbed + fixed 25
-			ng := ga + e.dist + 7*e.rise + 70 + n.Pen[b]*navStride
+			ng := ga + e.dist + n.JetRiseCost*e.rise + n.JetFixedCost + n.Pen[b]*navStride
 			if n.stamp[b] != gen || ng < n.g[b] {
 				n.stamp[b] = gen
 				n.g[b] = ng

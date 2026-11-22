@@ -79,6 +79,9 @@ type Bot struct {
 	stuckN     int
 	jetting    bool
 	stuckTimes []float64
+	corner     Vec3
+	cornerOK   bool
+	cornerT    float64
 
 	// combat
 	targetID    int
@@ -95,6 +98,9 @@ type Bot struct {
 	mode        string
 	kills       int
 	ffa         bool
+	shots       map[string]int
+	hits        map[string]int
+	lastStatT   float64
 	spawnYaw    float64
 	spawnSet    bool
 }
@@ -104,7 +110,7 @@ var traceOn = os.Getenv("MECHBOT_TRACE") != ""
 func NewBot(h *Hello) *Bot {
 	b := &Bot{cfg: &h.Config, slot: h.Slot, rng: rand.New(rand.NewSource(h.Seed + 7)),
 		enemies: map[int]*Track{}, npcs: map[int]*Track{}, pickups: map[int]*ItemMem{}, cubes: map[int]*ItemMem{},
-		failTake: map[int]float64{}, targetID: -1, strafe: 1, lastHurtT: -100, lastHitT: -100}
+		failTake: map[int]float64{}, targetID: -1, shots: map[string]int{}, hits: map[string]int{}, strafe: 1, lastHurtT: -100, lastHitT: -100}
 	dirs := []string{h.Map.Dir, "/arena", "/bot/arena", "kit/arena"}
 	if exe, err := os.Executable(); err == nil {
 		dirs = append(dirs, filepath.Join(filepath.Dir(exe), "arena"), filepath.Join(filepath.Dir(exe), "kit", "arena"))
@@ -350,6 +356,9 @@ func (b *Bot) update(o *Obs) {
 			}
 		case "hit":
 			b.lastHitT = b.t
+			if e.Target < 100 { // mechs only
+				b.hits[e.Weapon]++
+			}
 		case "took":
 			if id, ok := e.ID.(float64); ok {
 				delete(b.pickups, int(id))
@@ -416,15 +425,34 @@ var upgradePrio = []string{
 	"jets", "gun_velocity", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity",
 }
 
+var upgradePrioOffense = []string{
+	"gun_rate", "gun_damage", "laser_damage", "laser_charge", "lightning_efficiency", "lightning_range", "armor",
+	"plating", "nanites", "lightning_chain", "sensors", "gyros", "capacitor", "reactor", "servos", "gun_mag",
+	"jets", "gun_velocity", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity",
+}
+
+var upgradePrioMixed = []string{
+	"armor", "gun_rate", "laser_damage", "lightning_efficiency", "plating", "gun_damage", "laser_charge",
+	"nanites", "lightning_range", "lightning_chain", "sensors", "gyros", "capacitor", "reactor", "servos", "gun_mag",
+	"jets", "gun_velocity", "laser_pierce", "mortar_reload", "mortar_splash", "mortar_velocity",
+}
+
 func (b *Bot) pickUpgrade(act *Action) {
 	of := b.o.Offer
 	if of == nil || len(of.Choices) == 0 {
 		return
 	}
+	prio := upgradePrio
+	switch int(P["upg_order"]) {
+	case 1:
+		prio = upgradePrioOffense
+	case 2:
+		prio = upgradePrioMixed
+	}
 	best, bestR := 0, 1000
 	for i, c := range of.Choices {
 		r := 500
-		for k, id := range upgradePrio {
+		for k, id := range prio {
 			if id == c.ID {
 				r = k
 				break
@@ -543,6 +571,15 @@ func (b *Bot) Act(o *Obs) *Action {
 	b.fight(act, tgt)
 	b.tryTake(act)
 	b.lastAim = act.Aim
+	for i, w := range b.me.Weapons {
+		if w != nil && act.Fire[i] && b.targetID >= 0 && w.Cooldown <= 0.1 && (w.Ammo == nil || *w.Ammo > 0) && w.Reload == 0 && w.Kind != "laser" {
+			b.shots[w.Kind]++
+		}
+	}
+	if b.t-b.lastStatT >= 30 {
+		b.lastStatT = b.t
+		logf("stats t=%.0f shots=%v hits=%v kills=%d hp=%.0f cubes=%.0f ffa=%v", b.t, b.shots, b.hits, b.kills, b.me.HP, b.me.Cubes, b.ffa)
+	}
 	if traceOn {
 		tid := -1
 		if tgt != nil {
