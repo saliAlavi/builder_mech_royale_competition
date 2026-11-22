@@ -31,6 +31,8 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"w_sound":        0,   // goal choice: avoid estimated positions of recent weapon sounds
+	"aim_mix":        0,   // lead for the gun during the first part of a laser charge
 	"laser_seek_m":   0,   // travel this far for a known laser pickup while we have none (0 = normal loot range)
 	"laser_pre":      0,   // pre-charge the laser on a known enemy without line of sight
 	"laser_flee":     1,   // 1 = also charge the laser while retreating / racing the zone (half speed)

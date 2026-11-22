@@ -39,6 +39,8 @@ type Threat struct {
 	Bearing float64
 	T       float64
 	W       float64
+	Pos     Vec3 // estimated source position (weapon sounds only)
+	HasPos  bool
 }
 
 type Bot struct {
@@ -413,7 +415,19 @@ func (b *Bot) update(o *Obs) {
 			if s.Dist == "near" {
 				w *= 1.5
 			}
-			b.threats = append(b.threats, Threat{Bearing: s.Bearing, T: b.t - s.Age, W: w})
+			th := Threat{Bearing: s.Bearing, T: b.t - s.Age, W: w}
+			if s.Kind == "gun" || s.Kind == "laser" || s.Kind == "lightning" || s.Kind == "mortar" {
+				r := 240.0
+				switch s.Dist {
+				case "near":
+					r = 40
+				case "mid":
+					r = 110
+				}
+				th.Pos = Vec3{b.pos[0] + math.Cos(s.Bearing)*r, b.pos[1] + math.Sin(s.Bearing)*r, b.pos[2]}
+				th.HasPos = true
+			}
+			b.threats = append(b.threats, th)
 		}
 	}
 	keep := b.threats[:0]
@@ -814,6 +828,9 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 	scanPitch := math.Atan2(p1[2]-muzzle[2], math.Hypot(p1[0]-muzzle[0], p1[1]-muzzle[1]))
 	want := Vec2{hitYaw, hitPitch}
 	laserActive := las != nil && d < wstat(las, "range", 280) && (las.Charge > 0 || las.Cooldown < 0.3)
+	if laserActive && P["aim_mix"] > 0 && gun != nil && las.Charge < wstat(las, "charge", 0.75)*0.65 {
+		laserActive = false // early in the charge: aim for the gun (lead), swing to the laser line before release
+	}
 	litActive := lit != nil && d < wstat(lit, "range", 45)*1.1
 	if laserActive || litActive {
 		want = Vec2{scanYaw, scanPitch}

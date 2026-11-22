@@ -266,6 +266,14 @@ func (b *Bot) strategicGoal() Vec3 {
 				s -= P["w_enemy"] * math.Max(0, 1-dd/140)
 			}
 		}
+		if ws := P["w_sound"]; ws > 0 {
+			for _, th := range b.threats {
+				if th.HasPos && b.t-th.T < 10 {
+					dd := hdist(p, th.Pos)
+					s -= ws * math.Max(0, 1-dd/140)
+				}
+			}
+		}
 		return s
 	}
 	bestID := -1
