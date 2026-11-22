@@ -53,7 +53,7 @@ var P = map[string]float64{
 	"laser_flee":      1,   // 1 = also charge the laser while retreating / racing the zone (half speed)
 	"retreat_zz":      0.6, // lateral weave amplitude while retreating
 	"wv_lightning":    10,  // weapon values for loadout choices
-	"wv_laser":        9,
+	"wv_laser":        11,
 	"wv_gun":          6,
 	"jet_in_danger":   0,    // allow jet-climb paths while enemies are around
 	"regen_hold":      0,    // when hurt and out of contact, hold a sheltered spot to regenerate
@@ -68,14 +68,23 @@ var P = map[string]float64{
 	"evade_n":         3,    // break contact when this many enemies are known nearby
 	"evade_n_1w":      99,   // ... same, while holding a single weapon
 	"cover_max_m":     66,
-	"engage_m_1w":     400, // ... while holding a single weapon
-	"lead_smooth":     0.3, // EMA factor for target velocity when leading gun shots (0 = raw)
-	"engage_m":        400, // only open fire on mechs within this range (unless shot at / target weak)
-	"kite_m":          130, // back away (firing) whenever a known enemy is closer than this (0 = off)
-	"kite_rush":       0,   // 1 = a favourable lightning rush overrides kiting
-	"kite_zz":         0.3, // lateral weave while kiting
-	"kite_boost_gap":  40,  // boost when an enemy is this far inside kite_m
-	"kite_los_w":      25,  // bonus for kite spots that keep a line of fire to the target
+	"engage_m_1w":     400,  // ... while holding a single weapon
+	"lead_smooth":     0.3,  // EMA factor for target velocity when leading gun shots (0 = raw)
+	"engage_m":        400,  // only open fire on mechs within this range (unless shot at / target weak)
+	"kite_m":          0,    // back away (firing) whenever a known enemy is closer than this (0 = off)
+	"kite_rush":       0,    // 1 = a favourable lightning rush overrides kiting
+	"kite_zz":         0.3,  // lateral weave while kiting
+	"kite_boost_gap":  40,   // boost when an enemy is this far inside kite_m
+	"kite_los_w":      25,   // bonus for kite spots that keep a line of fire to the target
+	"gate":            1,    // 1 = only fight mechs that are on us (hot-target gate)
+	"gate_hold_s":     8,    // a mech stays hot this long after hitting / aiming at us
+	"gate_aim":        0.22, // rad: its torso points at us within this
+	"gate_aim_m":      150,  // ... and it is within this range
+	"gate_near_m":     35,   // anything this close is hot
+	"gate_weak":       0.35, // a mech under this HP fraction within reach is always fair game
+	"keep_gun":        1,    // never swap the gun out
+	"dive_hp":         0,    // close in on a target below this HP fraction (0 = off)
+	"dive_m":          18,
 	"tgt_threat":      0,   // target choice: prefer enemies by the dps they are dealing to us (s per dps)
 	"ffa_detect_t":    1e9, // ... only count deaths while the match clock is below this
 	"drop_m":          160, // go for supply drops within this distance

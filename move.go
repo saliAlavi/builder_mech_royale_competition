@@ -33,7 +33,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	nThreat := 0
 	var cx, cy float64
 	for _, t := range b.enemies {
-		if t.InObs && hdist(t.Pos, b.pos) < 170 {
+		if t.InObs && hdist(t.Pos, b.pos) < 170 && b.hot(t) {
 			nThreat++
 			cx += t.Pos[0]
 			cy += t.Pos[1]
@@ -47,7 +47,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	nKnown := 0
 	var kx, ky float64
 	for _, t := range b.enemies {
-		if b.t-t.LastSeen < 4 && hdist(t.Pos, b.pos) < 230 {
+		if b.t-t.LastSeen < 4 && hdist(t.Pos, b.pos) < 230 && b.hot(t) {
 			nKnown++
 			kx += t.Pos[0]
 			ky += t.Pos[1]
@@ -469,6 +469,9 @@ func (b *Bot) kiteMove(tgt *Track, nThreat int, act *Action) (Vec2, bool) {
 	if km <= 0 {
 		return Vec2{}, false
 	}
+	if P["dive_hp"] > 0 && tgt.HP < P["dive_hp"]*math.Max(tgt.MaxHP, 1) && b.hpFrac() > 0.3 && nThreat <= 2 {
+		return Vec2{}, false
+	}
 	if P["kite_rush"] > 0 {
 		if lit, _ := b.weapon("lightning"); lit != nil && b.aggressive(tgt, nThreat) && b.me.Energy > 25 {
 			return Vec2{}, false // lightning rush: close in instead
@@ -476,7 +479,7 @@ func (b *Bot) kiteMove(tgt *Track, nThreat int, act *Action) (Vec2, bool) {
 	}
 	dmin := math.Inf(1)
 	for _, t := range b.enemies {
-		if b.t-t.LastSeen < 3 {
+		if b.t-t.LastSeen < 3 && b.hot(t) {
 			if d := hdist(t.Pos, b.pos); d < dmin {
 				dmin = d
 			}
@@ -601,6 +604,13 @@ func (b *Bot) combatMove(tgt *Track, nThreat int) Vec2 {
 		pref = P["pref_laser"]
 	} else if lit != nil {
 		pref = 55
+	}
+	dive := P["dive_hp"] > 0 && tgt.HP < P["dive_hp"]*math.Max(tgt.MaxHP, 1) && b.hpFrac() > 0.3 && nThreat <= 2
+	if dive {
+		pref = P["dive_m"] // finish it before it can break off and regenerate
+		if !tgt.LOS {
+			return b.navTo(tgt.Pos, nil)
+		}
 	}
 	if !tgt.LOS {
 		// can't shoot it: if aggressive, approach via path; else hold

@@ -27,6 +27,7 @@ type Track struct {
 	LOS      bool // shot line from our muzzle this tick
 	HitUsT   float64
 	Threat   float64 // decayed damage this mech has dealt to us (~dps * 4 s)
+	HotT     float64 // last time this mech was "on us" (hit us, aimed/charged at us, very close)
 }
 
 type ItemMem struct {
@@ -107,6 +108,7 @@ type Bot struct {
 	lastAim     Vec2
 	mode        string
 	kills       int
+	lastKillT   float64
 	ffa         bool
 	shots       map[string]int
 	dmgBy       map[string]float64
@@ -279,7 +281,7 @@ func (b *Bot) update(o *Obs) {
 		}
 		t := m[a.ID]
 		if t == nil {
-			t = &Track{ID: a.ID, Kind: a.Kind, HitUsT: -100}
+			t = &Track{ID: a.ID, Kind: a.Kind, HitUsT: -100, HotT: -100}
 			m[a.ID] = t
 		}
 		if al := P["lead_smooth"]; al > 0 && t.LastSeen > 0 && b.t-t.LastSeen < 0.5 {
@@ -402,6 +404,10 @@ func (b *Bot) update(o *Obs) {
 			}
 		case "kill":
 			b.kills++
+			b.lastKillT = b.t
+			if P["gate"] > 0 {
+				b.retreat = false // snowball: go take the cubes and weapon instead of fleeing
+			}
 			if t := b.enemies[int(e.Target)]; t != nil {
 				delete(b.enemies, int(e.Target))
 			}
@@ -563,6 +569,9 @@ func (b *Bot) lootGain(kind string) (float64, int) {
 	}
 	lo, loI := 1e9, -1
 	for i, w := range b.me.Weapons {
+		if w != nil && w.Kind == "gun" && P["keep_gun"] > 0 {
+			continue // never swap the gun out: gun + secondary fire together
+		}
 		if w != nil && wval(w.Kind) < lo {
 			// can't swap a charging laser
 			if w.Kind == "laser" && w.Charge > 0 {
@@ -684,11 +693,32 @@ func (b *Bot) myDPS(d float64) float64 {
 	return math.Max(dps, 1)
 }
 
+// hot: is this mech actually on us? The house squad escalates (one hunter early, more per kill),
+// so we fight the mechs hunting us and leave bystanders alone instead of waking the whole map.
+func (b *Bot) hot(t *Track) bool {
+	if P["gate"] == 0 {
+		return true
+	}
+	d := hdist(t.Pos, b.pos)
+	aimed := math.Abs(wrap(t.Aim[0]-bearing(t.Pos, b.pos))) < P["gate_aim"]
+	if b.t-t.HitUsT < P["gate_hold_s"] || d < P["gate_near_m"] || (aimed && d < P["gate_aim_m"]) || (t.Charging && aimed) {
+		t.HotT = b.t
+	}
+	if b.t-t.HotT < P["gate_hold_s"] {
+		return true
+	}
+	// a nearly dead mech in reach is a cheap kill whoever it is hunting
+	return t.HP < P["gate_weak"]*math.Max(t.MaxHP, 1) && d < 110
+}
+
 func (b *Bot) pickTarget() *Track {
 	var best *Track
 	bestS := math.Inf(1)
 	for _, t := range b.enemies {
 		if !t.InObs {
+			continue
+		}
+		if !b.hot(t) {
 			continue
 		}
 		d := dist3(t.Pos, b.pos)
