@@ -22,7 +22,8 @@ var P = map[string]float64{
 	"farm_max_t":     330, // ... until this match time
 	"quiet":          1,   // walk below step-sound speed when nothing is urgent
 	"laser_over_gun": 1,   // swap the gun out for a laser
-	"loot_early_m":   160,
+	"loot_early_m":   220,
+	"spawn_scan_s":   1.8,
 	"loot_m":         70,
 	"w_center":       1.0,
 	"w_travel":       0.7,

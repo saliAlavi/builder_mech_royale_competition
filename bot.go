@@ -91,6 +91,8 @@ type Bot struct {
 	failTake    map[int]float64
 	lastAim     Vec2
 	mode        string
+	spawnYaw    float64
+	spawnSet    bool
 }
 
 var traceOn = os.Getenv("MECHBOT_TRACE") != ""
@@ -219,6 +221,10 @@ func (b *Bot) insideAt(p Vec3, tau, m float64) bool {
 // ---------------------------------------------------------------- memory
 
 func (b *Bot) update(o *Obs) {
+	if !b.spawnSet {
+		b.spawnSet = true
+		b.spawnYaw = o.Self.Aim[0]
+	}
 	b.o = o
 	b.t = o.T
 	b.me = &o.Self
@@ -615,9 +621,13 @@ func (b *Bot) farmTarget() *farm {
 		}
 	}
 	if b.t < P["farm_max_t"] && b.me.HP > 0.5*b.me.MaxHP {
+		crR, crBonus := 80.0, 20.0
+		if b.me.Weapons[1] == nil || b.me.Weapons[0] == nil {
+			crR, crBonus = 130, 60 // want a weapon drop: crates first
+		}
 		for _, c := range b.o.Crates {
 			d := dist3(c.Pos, b.pos)
-			if d > 80 || d+20 > bestD {
+			if d > crR || d+crBonus > bestD {
 				continue
 			}
 			if !b.w.ShotLOS(muzzle, Vec3{c.Pos[0], c.Pos[1], c.Pos[2] + 1.2}) {
@@ -800,6 +810,9 @@ func (b *Bot) idleReload(act *Action) {
 }
 
 func (b *Bot) scanYaw(act *Action) float64 {
+	if b.t < P["spawn_scan_s"] {
+		return wrap(b.spawnYaw + b.t*3.6) // look all around once at spawn: find loot and threats
+	}
 	// look toward the most recent weighted threat bearing, else along movement, sweeping
 	var sx, sy float64
 	for _, th := range b.threats {

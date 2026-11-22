@@ -223,6 +223,8 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 	maxD := P["loot_m"]
 	if b.t < 75 {
 		maxD = P["loot_early_m"]
+	} else if b.me.Weapons[0] == nil || b.me.Weapons[1] == nil {
+		maxD = math.Max(maxD, 120) // still missing a second weapon
 	}
 	for _, p := range b.pickups {
 		g, _ := b.lootGain(p.Kind)
