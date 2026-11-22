@@ -57,6 +57,9 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	if b.me.Weapons[0] == nil || b.me.Weapons[1] == nil {
 		evN = math.Min(evN, P["evade_n_1w"])
 	}
+	if b.t < P["early_evade_t"] {
+		evN = math.Min(evN, P["early_evade_n"])
+	}
 	evade := float64(nKnown) >= evN
 	if evade && nThreat == 0 {
 		cx, cy = kx/float64(nKnown), ky/float64(nKnown)

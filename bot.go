@@ -850,9 +850,10 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		spd := wstat(gun, "speed", 252)
 		y, p, _ := leadAim(muzzle, aimPt, vel, spd)
 		ey, ep := aimErr(cur, Vec2{y, p})
-		tolY := math.Atan2(tRad*0.85, d) + 0.004
-		tolP := math.Atan2(tHalfH*0.8, d) + 0.004
-		if los && d < wstat(gun, "range", 230)*0.97 && ey < tolY && ep < tolP {
+		tolY := math.Atan2(tRad*P["gun_tol"], d) + 0.004
+		tolP := math.Atan2(tHalfH*P["gun_tol"], d) + 0.004
+		quiet := b.mode == "retreat" && P["retreat_gun_m"] > 0 && d > P["retreat_gun_m"]
+		if los && d < wstat(gun, "range", 230)*0.97 && ey < tolY && ep < tolP && !quiet {
 			act.Fire[gi] = true
 		}
 		if gun.Ammo != nil && *gun.Ammo == 0 && gun.Reload == 0 {
@@ -869,7 +870,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		if tgt == nil {
 			reserve = 40 // farming: keep energy
 		}
-		if los && d < rng*0.93 && ey < cone*0.35 && b.me.Energy >= cost+reserve {
+		if los && d < rng*0.93 && ey < cone*P["lit_cone"] && b.me.Energy >= cost+reserve {
 			act.Fire[ti] = true
 		}
 	}
@@ -878,8 +879,8 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		rng := wstat(las, "range", 280)
 		full := wstat(las, "charge", 0.75)
 		ey, ep := aimErr(cur, Vec2{hitYaw, hitPitch})
-		tolY := math.Atan2(tRad*0.7, d) + 0.002
-		tolP := math.Atan2(tHalfH*0.7, d) + 0.002
+		tolY := math.Atan2(tRad*P["laser_tol"], d) + 0.002
+		tolP := math.Atan2(tHalfH*P["laser_tol"], d) + 0.002
 		inRange := d < rng*0.97
 		if las.Charge > 0 {
 			if las.Charge >= full*0.97 && los && inRange && ey < tolY && ep < tolP {

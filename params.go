@@ -31,6 +31,12 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
+	"laser_tol":      0.7,  // release the laser when aim error < this x target radius
+	"gun_tol":        1.4,  // fire the gun when aim error < this x target radius (and half-height)
+	"lit_cone":       0.35, // fire lightning when yaw error < this x cone_deg
+	"early_evade_t":  20,   // before this match time, evade at early_evade_n known enemies
+	"early_evade_n":  1,
+	"retreat_gun_m":  0,   // while retreating, only fire the gun at targets closer than this (0 = always)
 	"w_sound":        0,   // goal choice: avoid estimated positions of recent weapon sounds
 	"aim_mix":        0,   // lead for the gun during the first part of a laser charge
 	"laser_seek_m":   0,   // travel this far for a known laser pickup while we have none (0 = normal loot range)
