@@ -126,11 +126,21 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		}
 	case tgt != nil && b.engage(tgt) && (tgt.LOS || b.aggressive(tgt, nThreat)):
 		b.mode = "fight"
-		dir = b.combatMove(tgt, nThreat)
+		if kd, ok := b.kiteMove(tgt, nThreat, act); ok {
+			b.mode = "kite"
+			dir = kd
+		} else {
+			dir = b.combatMove(tgt, nThreat)
+		}
 	case tgt != nil:
 		// known but not shootable / not worth a fight: keep to cover goal, facing it
 		b.mode = "wary"
-		dir = b.navTo(b.strategicGoal(), act)
+		if kd, ok := b.kiteMove(tgt, nThreat, act); ok {
+			b.mode = "kite"
+			dir = kd
+		} else {
+			dir = b.navTo(b.strategicGoal(), act)
+		}
 	case P["regen_hold"] > 0 && hp < P["regen_hold_hp"] && b.t-b.lastHurtT > 2 && reqSpeed < 0.3*b.walkSpeed() && !b.enemySeenWithin(4):
 		b.mode = "regen"
 		if !b.hideOK || b.t-b.hideT > 3 {
@@ -172,7 +182,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 	}
 	// laser charging halves speed anyway; don't bother
 	act.Move = Vec2{dir[0] * speed, dir[1] * speed}
-	if b.mode == "fight" || b.mode == "wary" || b.mode == "retreat" || b.mode == "goal" || b.mode == "loot" {
+	if b.mode == "fight" || b.mode == "wary" || b.mode == "retreat" || b.mode == "goal" || b.mode == "loot" || b.mode == "kite" {
 		if dg := b.bulletDodge(); math.Hypot(dg[0], dg[1]) > 0.3 {
 			d := norm2(dg[0], dg[1])
 			nd := b.steerClear(norm2(act.Move[0]+2*d[0], act.Move[1]+2*d[1]))
@@ -450,6 +460,116 @@ func (b *Bot) lootGoal() (Vec3, bool) {
 		}
 	}
 	return best, bestV > 0
+}
+
+// kiteMove: our aim stays good at range and theirs doesn't, so when an enemy gets inside kite_m
+// back away at full speed toward open ground (the torso keeps firing; legs are independent).
+func (b *Bot) kiteMove(tgt *Track, nThreat int, act *Action) (Vec2, bool) {
+	km := P["kite_m"]
+	if km <= 0 {
+		return Vec2{}, false
+	}
+	if P["kite_rush"] > 0 {
+		if lit, _ := b.weapon("lightning"); lit != nil && b.aggressive(tgt, nThreat) && b.me.Energy > 25 {
+			return Vec2{}, false // lightning rush: close in instead
+		}
+	}
+	dmin := math.Inf(1)
+	for _, t := range b.enemies {
+		if b.t-t.LastSeen < 3 {
+			if d := hdist(t.Pos, b.pos); d < dmin {
+				dmin = d
+			}
+		}
+	}
+	if dmin >= km {
+		b.kiteOK = false
+		return Vec2{}, false
+	}
+	if !b.kiteOK || (b.t-b.kiteT > 0.8 && !b.busy()) || hdist(b.kite, b.pos) < 6 {
+		b.kite, b.kiteOK = b.kiteSpot(tgt)
+		b.kiteT = b.t
+	}
+	if !b.kiteOK {
+		return Vec2{}, false
+	}
+	dir := b.navTo(b.kite, nil)
+	if dir == (Vec2{}) {
+		return Vec2{}, false
+	}
+	if zz := P["kite_zz"]; zz > 0 {
+		if b.t > b.strafeUntil {
+			b.strafe = -b.strafe
+			b.strafeUntil = b.t + 0.4 + b.rng.Float64()*0.5
+		}
+		dir = b.steerClear(norm2(dir[0]-dir[1]*zz*b.strafe, dir[1]+dir[0]*zz*b.strafe))
+	}
+	if act != nil && dmin < km-P["kite_boost_gap"] && b.me.Energy > 35 && b.me.Grounded {
+		act.Boost = true
+	}
+	return dir, true
+}
+
+// kiteSpot: reachable ground spot 40-110 m away that maximises distance from every known enemy,
+// stays in the zone, and preferably keeps a line of fire to the target.
+func (b *Bot) kiteSpot(tgt *Track) (Vec3, bool) {
+	type en struct{ p Vec3 }
+	var es []Vec3
+	for _, t := range b.enemies {
+		if b.t-t.LastSeen < 6 && hdist(t.Pos, b.pos) < 300 {
+			es = append(es, t.Pos)
+		}
+	}
+	if len(es) == 0 {
+		return Vec3{}, false
+	}
+	tc := Vec3{tgt.Pos[0], tgt.Pos[1], tgt.Pos[2] + 4.5*b.scaleOf(tgt.Cubes)}
+	minD := func(p Vec3) float64 {
+		m := math.Inf(1)
+		for _, e := range es {
+			if d := hdist(p, e); d < m {
+				m = d
+			}
+		}
+		return m
+	}
+	cur := minD(b.pos)
+	bestS := math.Inf(-1)
+	var best Vec3
+	ok := false
+	for _, ring := range []float64{40, 70, 105} {
+		for k := 0; k < 16; k++ {
+			a := float64(k)/16*2*math.Pi + b.rng.Float64()*0.2
+			x, y := b.pos[0]+math.Cos(a)*ring, b.pos[1]+math.Sin(a)*ring
+			id := b.nav.nearestOK(x, y, b.pos[2], 4, true)
+			if id < 0 {
+				continue
+			}
+			p := b.nav.pos(id)
+			if !b.insideAt(p, b.t+12, 12) {
+				continue
+			}
+			md := minD(p)
+			mid := Vec3{(p[0] + b.pos[0]) / 2, (p[1] + b.pos[1]) / 2, p[2]}
+			mm := minD(mid)
+			if mm < cur-8 {
+				continue // the way there runs toward an enemy
+			}
+			sc := math.Min(md, 220) + 0.3*math.Min(mm, 220)
+			if b.w.ShotLOS(Vec3{p[0], p[1], p[2] + b.mzH}, tc) {
+				sc += P["kite_los_w"]
+			}
+			// keep the spot we already chose unless clearly beaten
+			if b.kiteOK && hdist(p, b.kite) < 12 {
+				sc += 10
+			}
+			if sc > bestS {
+				bestS, best, ok = sc, p, true
+			}
+		}
+	}
+	_ = en{}
+	return best, ok
 }
 
 // engage: worth starting/continuing a fight with tgt?

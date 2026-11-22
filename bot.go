@@ -83,6 +83,9 @@ type Bot struct {
 	jetting    bool
 	stuckTimes []float64
 	corner     Vec3
+	kite       Vec3
+	kiteOK     bool
+	kiteT      float64
 	hide       Vec3
 	hideOK     bool
 	hideT      float64
@@ -357,6 +360,13 @@ func (b *Bot) update(o *Obs) {
 				b.dmgBy["REAR"] += e.Amount
 			}
 			b.dmgBy["mode:"+b.mode] += e.Amount
+			if e.By != nil {
+				if t := b.enemies[int(*e.By)]; t != nil && b.t-t.LastSeen < 1 {
+					b.dmgBy[rangeKey("taken", hdist(t.Pos, b.pos))] += e.Amount
+				} else {
+					b.dmgBy["taken@unseen"] += e.Amount
+				}
+			}
 			if e.Bearing != nil {
 				b.threats = append(b.threats, Threat{Bearing: *e.Bearing, T: b.t, W: 3})
 			}
@@ -372,6 +382,9 @@ func (b *Bot) update(o *Obs) {
 			b.lastHitT = b.t
 			if e.Target < 100 { // mechs only
 				b.hits[e.Weapon]++
+				if t := b.enemies[int(e.Target)]; t != nil {
+					b.dmgBy[rangeKey("dealt", hdist(t.Pos, b.pos))] += e.Amount
+				}
 			}
 		case "took":
 			if id, ok := e.ID.(float64); ok {
@@ -441,6 +454,20 @@ func (b *Bot) update(o *Obs) {
 		b.hist = b.hist[len(b.hist)-30:]
 		b.histMv = b.histMv[len(b.histMv)-30:]
 	}
+}
+
+func rangeKey(pfx string, d float64) string {
+	switch {
+	case d < 40:
+		return pfx + "@000-040"
+	case d < 80:
+		return pfx + "@040-080"
+	case d < 120:
+		return pfx + "@080-120"
+	case d < 160:
+		return pfx + "@120-160"
+	}
+	return pfx + "@160+"
 }
 
 // ---------------------------------------------------------------- upgrades

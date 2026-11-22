@@ -71,6 +71,11 @@ var P = map[string]float64{
 	"engage_m_1w":     400, // ... while holding a single weapon
 	"lead_smooth":     0.3, // EMA factor for target velocity when leading gun shots (0 = raw)
 	"engage_m":        400, // only open fire on mechs within this range (unless shot at / target weak)
+	"kite_m":          130, // back away (firing) whenever a known enemy is closer than this (0 = off)
+	"kite_rush":       0,   // 1 = a favourable lightning rush overrides kiting
+	"kite_zz":         0.3, // lateral weave while kiting
+	"kite_boost_gap":  40,  // boost when an enemy is this far inside kite_m
+	"kite_los_w":      25,  // bonus for kite spots that keep a line of fire to the target
 	"ffa_detect_t":    1e9, // ... only count deaths while the match clock is below this
 	"drop_m":          160, // go for supply drops within this distance
 	"drop_contest_m":  90,  // ... unless an enemy was seen this close to it in the last 10 s
