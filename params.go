@@ -56,8 +56,14 @@ var P = map[string]float64{
 // FFA overrides: applied once the bot sees mechs dying that it didn't kill (a real free-for-all,
 // not the practice squad, whose members never fight each other). MECHBOT_FFA overrides them.
 var FFA = map[string]float64{
-	"evade_n": 2,
-	"aggr_hp": 0.8,
+	"evade_n":     2,
+	"aggr_hp":     0.9,
+	"engage_m":    100,
+	"w_enemy":     2.5,
+	"farm_max_t":  120,
+	"retreat_hp":  0.55,
+	"retreat_hp2": 0.7,
+	"retreat_hp3": 0.85,
 }
 
 func parseKV(env string, m map[string]float64) {

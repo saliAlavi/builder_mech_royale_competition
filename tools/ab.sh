@@ -11,7 +11,7 @@ for spec in "$@"; do
   name=${spec%%:*}; params=${spec#*:}
   w="$OUT/$name.sh"
   printf '#!/bin/sh\nMECHBOT_PARAMS=%q exec %q\n' "$params" "$BIN" > "$w"; chmod +x "$w"
-  ( cd "$ROOT/sim" && ./mechsim --mode "$MODE" --bot "$w" --matches "$N" --jobs "$JOBS" --seed "$SEED" --out "$OUT/$name" > "$OUT/$name.txt" 2>&1 ) &
+  ( cd "$ROOT/sim" && ./mechsim ${SIMFLAGS:-} --mode "$MODE" --bot "$w" --matches "$N" --jobs "$JOBS" --seed "$SEED" --out "$OUT/$name" > "$OUT/$name.txt" 2>&1 ) &
 done
 wait
 for spec in "$@"; do
