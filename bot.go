@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Track struct {
@@ -102,8 +103,11 @@ type Bot struct {
 	kills       int
 	ffa         bool
 	shots       map[string]int
+	dmgBy       map[string]float64
 	hits        map[string]int
 	lastStatT   float64
+	tickStart   time.Time
+	lastDmgLog  float64
 	spawnYaw    float64
 	spawnSet    bool
 }
@@ -113,7 +117,7 @@ var traceOn = os.Getenv("MECHBOT_TRACE") != ""
 func NewBot(h *Hello) *Bot {
 	b := &Bot{cfg: &h.Config, slot: h.Slot, rng: rand.New(rand.NewSource(h.Seed + 7)),
 		enemies: map[int]*Track{}, npcs: map[int]*Track{}, pickups: map[int]*ItemMem{}, cubes: map[int]*ItemMem{},
-		failTake: map[int]float64{}, targetID: -1, shots: map[string]int{}, hits: map[string]int{}, strafe: 1, lastHurtT: -100, lastHitT: -100}
+		failTake: map[int]float64{}, targetID: -1, shots: map[string]int{}, hits: map[string]int{}, dmgBy: map[string]float64{}, strafe: 1, lastHurtT: -100, lastHitT: -100}
 	dirs := []string{h.Map.Dir, "/arena", "/bot/arena", "kit/arena"}
 	if exe, err := os.Executable(); err == nil {
 		dirs = append(dirs, filepath.Join(filepath.Dir(exe), "arena"), filepath.Join(filepath.Dir(exe), "kit", "arena"))
@@ -346,6 +350,11 @@ func (b *Bot) update(o *Obs) {
 		switch e.Type {
 		case "damaged":
 			b.lastHurtT = b.t
+			b.dmgBy[e.Weapon] += e.Amount
+			if e.Rear {
+				b.dmgBy["REAR"] += e.Amount
+			}
+			b.dmgBy["mode:"+b.mode] += e.Amount
 			if e.Bearing != nil {
 				b.threats = append(b.threats, Threat{Bearing: *e.Bearing, T: b.t, W: 3})
 			}
@@ -552,7 +561,11 @@ func (b *Bot) tryTake(act *Action) {
 
 // ---------------------------------------------------------------- main step
 
+// busy: this decision has already used a good part of the 50 ms budget; skip optional searches.
+func (b *Bot) busy() bool { return time.Since(b.tickStart) > 20*time.Millisecond }
+
 func (b *Bot) Act(o *Obs) *Action {
+	b.tickStart = time.Now()
 	b.update(o)
 	act := &Action{Tick: o.Tick}
 	act.Aim = b.me.Aim
@@ -582,6 +595,10 @@ func (b *Bot) Act(o *Obs) *Action {
 	if b.t-b.lastStatT >= 30 {
 		b.lastStatT = b.t
 		logf("stats t=%.0f shots=%v hits=%v kills=%d hp=%.0f cubes=%.0f ffa=%v", b.t, b.shots, b.hits, b.kills, b.me.HP, b.me.Cubes, b.ffa)
+	}
+	if b.t-b.lastDmgLog >= 2 && len(b.dmgBy) > 0 {
+		b.lastDmgLog = b.t
+		logf("dmg t=%.1f %v", b.t, b.dmgBy)
 	}
 	if traceOn {
 		tid := -1

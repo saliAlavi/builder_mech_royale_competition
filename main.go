@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
 	"runtime/debug"
 	"time"
 )
@@ -58,7 +59,10 @@ func main() {
 	if devMain(os.Args[1:]) {
 		return
 	}
-	debug.SetGCPercent(300)
+	// The match container has 1 CPU (CFS quota) and a 128-thread limit, but the runtime would size
+	// itself to the host's cores: pin it to one P so GC can't get throttled or spawn too many threads.
+	runtime.GOMAXPROCS(1)
+	debug.SetGCPercent(400)
 	lines := make(chan []byte, 1024)
 	go func() {
 		r := bufio.NewReaderSize(os.Stdin, 1<<20)

@@ -31,7 +31,8 @@ var P = map[string]float64{
 	"w_enemy":        1.2,
 	"drops":          1, // try to capture uncontested supply drops
 	"take_mortar":    0,
-	"wv_lightning":   10, // weapon values for loadout choices
+	"retreat_zz":     0.6, // lateral weave amplitude while retreating
+	"wv_lightning":   10,  // weapon values for loadout choices
 	"wv_laser":       9,
 	"wv_gun":         6,
 	"jet_in_danger":  0,    // allow jet-climb paths while enemies are around

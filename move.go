@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"sort"
 )
 
 // ---------------------------------------------------------------- movement decision
@@ -98,7 +99,7 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		}
 	case (b.retreat && nThreat > 0) || evade:
 		b.mode = "retreat"
-		if !b.coverOK || b.t-b.coverT > 1.5 {
+		if !b.coverOK || (b.t-b.coverT > 1.5 && !b.busy()) {
 			b.cover, b.coverOK = b.findCover(cx, cy)
 			b.coverT = b.t
 		}
@@ -107,6 +108,15 @@ func (b *Bot) decideMove(act *Action, tgt *Track) {
 		} else {
 			dir = norm2(b.pos[0]-cx, b.pos[1]-cy)
 			dir = b.steerClear(dir)
+		}
+		// weave: unpredictable lateral component so pursuers can't lead us
+		if zz := P["retreat_zz"]; zz > 0 && dir != (Vec2{}) && !b.jetting {
+			if b.t > b.strafeUntil {
+				b.strafe = -b.strafe
+				b.strafeUntil = b.t + 0.35 + b.rng.Float64()*0.4
+			}
+			w := norm2(dir[0]-dir[1]*zz*b.strafe, dir[1]+dir[0]*zz*b.strafe)
+			dir = b.steerClear(w)
 		}
 		if b.me.Energy > 30 && hdist(b.pos, b.cover) > 6 {
 			act.Boost = true
@@ -242,7 +252,7 @@ func (b *Bot) strategicGoal() Vec3 {
 		R = math.Max(r*0.5, 0)
 	}
 	valid := func(p Vec3) bool { return math.Hypot(p[0]-c[0], p[1]-c[1]) <= R+1 }
-	if b.goalOK && valid(b.goal) && b.t-b.goalT < 6 && b.goalNext == c {
+	if b.goalOK && valid(b.goal) && (b.t-b.goalT < 6 || b.busy()) && b.goalNext == c {
 		return b.goal
 	}
 	score := func(id int) float64 {
@@ -450,6 +460,10 @@ func (b *Bot) cornerSpot(tgt *Track) (Vec2, bool) {
 		}
 		others = append(others, Vec3{t.Pos[0], t.Pos[1], t.Pos[2] + 8*b.scaleOf(t.Cubes)})
 	}
+	if len(others) > 6 {
+		sort.Slice(others, func(i, j int) bool { return hdist(others[i], b.pos) < hdist(others[j], b.pos) })
+		others = others[:6]
+	}
 	if len(others) == 0 {
 		b.cornerOK = false
 		return Vec2{}, false
@@ -464,7 +478,7 @@ func (b *Bot) cornerSpot(tgt *Track) (Vec2, bool) {
 		return n
 	}
 	tc := Vec3{tgt.Pos[0], tgt.Pos[1], tgt.Pos[2] + 4.5*b.scaleOf(tgt.Cubes)}
-	if b.t-b.cornerT > 0.8 {
+	if b.t-b.cornerT > 0.8 && !b.busy() {
 		b.cornerT = b.t
 		cur := seenBy(b.pos)
 		if cur == 0 {
@@ -673,6 +687,9 @@ func (b *Bot) navTo(goal Vec3, act *Action) Vec2 {
 	replan := b.path == nil || hdist(goal, b.pathGoal) > 6 || b.t-b.pathT > 2.0
 	if replan && b.path != nil && len(b.path) == 0 && b.t-b.pathT < 1.0 && hdist(goal, b.pathGoal) < 15 {
 		replan = false // last search failed recently: don't burn time
+	}
+	if replan && len(b.path) > 0 && b.busy() {
+		replan = false // keep following the old path this tick
 	}
 	if !replan && b.pathIdx < len(b.path) {
 		p := b.nav.pos(b.path[b.pathIdx])
