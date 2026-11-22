@@ -26,6 +26,7 @@ type Track struct {
 	InObs    bool
 	LOS      bool // shot line from our muzzle this tick
 	HitUsT   float64
+	Threat   float64 // decayed damage this mech has dealt to us (~dps * 4 s)
 }
 
 type ItemMem struct {
@@ -264,6 +265,7 @@ func (b *Bot) update(o *Obs) {
 	for _, t := range b.enemies {
 		t.InObs = false
 		t.LOS = false
+		t.Threat *= 0.975 // ~4 s time constant at 10 decisions/s
 	}
 	for _, t := range b.npcs {
 		t.InObs = false
@@ -373,6 +375,7 @@ func (b *Bot) update(o *Obs) {
 			if e.By != nil {
 				if t := b.enemies[int(*e.By)]; t != nil {
 					t.HitUsT = b.t
+					t.Threat += e.Amount
 				}
 				if t := b.npcs[int(*e.By)]; t != nil {
 					t.HitUsT = b.t
@@ -703,6 +706,7 @@ func (b *Bot) pickTarget() *Track {
 		if b.t-t.HitUsT < 3 {
 			s -= 1.5
 		}
+		s -= P["tgt_threat"] * t.Threat / 4 // seconds of preference per dps it deals to us
 		if t.ID == b.targetID {
 			s -= 1.5
 		}

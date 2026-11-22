@@ -240,6 +240,9 @@ type Sim struct {
 	squadSeen   map[int]float64
 	squadHeard  Vec3
 	squadHeardT float64
+	squadLast   Vec3
+	squadLastOK bool
+	hunters     map[int]bool
 	pending     []*Mech // deaths this tick
 	Over        bool
 	navScratch  *NavScratch

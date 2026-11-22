@@ -96,6 +96,12 @@ func main() {
 	cpuprof := flag.String("cpuprofile", "", "write cpu profile")
 	noiseMult := flag.Float64("house-noise", 1.2, "multiplier on house-bot aim noise (higher = weaker house bots)")
 	flag.IntVar(&HouseHunters, "house-hunters", HouseHunters, "house bots that converge on a target known only via squad vision")
+	flag.BoolVar(&HouseEscalate, "escalate", HouseEscalate, "escalating squad: weakest hunter first, more per house death, all late")
+	flag.Float64Var(&HouseEscBase, "esc-base", HouseEscBase, "escalate: hunters at the start")
+	flag.Float64Var(&HouseEscPerKill, "esc-per-kill", HouseEscPerKill, "escalate: extra hunters per dead house bot")
+	flag.Float64Var(&HouseLateT, "esc-late", HouseLateT, "escalate: everyone hunts after this match time")
+	flag.Float64Var(&HouseBystanderR, "esc-bystander-r", HouseBystanderR, "escalate: bystanders engage a target they see within this range")
+	flag.Float64Var(&HouseProvokeS, "esc-provoke-s", HouseProvokeS, "escalate: a damaged bystander fights back for this long")
 	flag.Parse()
 	for i := range HouseNoise {
 		HouseNoise[i] *= *noiseMult

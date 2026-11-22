@@ -76,6 +76,7 @@ var P = map[string]float64{
 	"kite_zz":         0.3, // lateral weave while kiting
 	"kite_boost_gap":  40,  // boost when an enemy is this far inside kite_m
 	"kite_los_w":      25,  // bonus for kite spots that keep a line of fire to the target
+	"tgt_threat":      0,   // target choice: prefer enemies by the dps they are dealing to us (s per dps)
 	"ffa_detect_t":    1e9, // ... only count deaths while the match clock is below this
 	"drop_m":          160, // go for supply drops within this distance
 	"drop_contest_m":  90,  // ... unless an enemy was seen this close to it in the last 10 s

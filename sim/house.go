@@ -2,6 +2,7 @@ package main
 
 import (
 	"math"
+	"sort"
 )
 
 // ---------- spawn candidate lists ----------
@@ -324,6 +325,20 @@ var HouseFireRange = [4]float64{70, 100, 140, 180}
 // HouseHunters is how many house bots converge on a target known only via squad vision.
 var HouseHunters = 2
 
+// Escalating squad (track rules: "hunt you weakest first: one early, more as you thin them out,
+// all of them late"). When HouseEscalate is on, only the hunter set chases; the hunter count is
+// HouseEscBase + HouseEscPerKill * (dead house bots), everyone after HouseLateT. Hunters are the
+// weakest alive (easy first), nearest first. Bystanders fight only when provoked (damaged by the
+// target, for HouseProvokeS seconds) or when they see it within HouseBystanderR.
+var (
+	HouseEscalate   = false
+	HouseEscBase    = 1.0
+	HouseEscPerKill = 1.0
+	HouseLateT      = 270.0
+	HouseBystanderR = 35.0
+	HouseProvokeS   = 8.0
+)
+
 type HouseBot struct {
 	duty       float64
 	hunt       float64
@@ -353,6 +368,7 @@ type HouseBot struct {
 	alertYaw   float64
 	alertT     float64
 	lastTgt    int
+	provokedT  float64
 }
 
 var diffNames = []string{"easy", "medium", "hard", "expert"}
@@ -384,6 +400,7 @@ func (h *HouseBot) onDamaged(s *Sim, by int, src Vec3) {
 	h.alertT = s.T
 	a := s.Mechs[by]
 	if a.Squad == 0 {
+		h.provokedT = s.T + HouseProvokeS
 		s.squadHeard = a.Pos.Add(V(s.gauss()*6, s.gauss()*6, 0))
 		s.squadHeardT = s.T
 	}
@@ -409,11 +426,43 @@ func (s *Sim) squadPass() {
 		for _, hm := range house {
 			if s.inViewCone(hm, o.center()) && s.canSee(hm, o.center(), o.top()) {
 				s.squadSeen[o.ID] = s.T
+				s.squadLast = o.Pos
+				s.squadLastOK = true
 				if hm.House.lastTgt == o.ID {
 					hm.House.vis = true
 				} else {
 					hm.House.vis = true
 				}
+			}
+		}
+	}
+	// escalating hunter set
+	if HouseEscalate {
+		s.hunters = map[int]bool{}
+		var tgt *Mech
+		dead := 0
+		for _, o := range s.Mechs {
+			if o.Squad == 0 && o.Alive && tgt == nil {
+				tgt = o
+			}
+			if o.House != nil && !o.Alive {
+				dead++
+			}
+		}
+		n := int(HouseEscBase + HouseEscPerKill*float64(dead))
+		if s.T >= HouseLateT {
+			n = len(house)
+		}
+		if tgt != nil {
+			hs := append([]*Mech(nil), house...)
+			sort.Slice(hs, func(i, j int) bool {
+				if hs[i].House.Diff != hs[j].House.Diff {
+					return hs[i].House.Diff < hs[j].House.Diff
+				}
+				return hs[i].Pos.Dist(tgt.Pos) < hs[j].Pos.Dist(tgt.Pos)
+			})
+			for i := 0; i < n && i < len(hs); i++ {
+				s.hunters[hs[i].ID] = true
 			}
 		}
 	}
@@ -454,7 +503,14 @@ func (s *Sim) houseDecide(m *Mech) {
 			continue
 		}
 		d := o.Pos.Dist(m.Pos)
-		if !h.vis {
+		if HouseEscalate {
+			if !s.hunters[m.ID] && s.T >= h.provokedT {
+				// bystander: only reacts to a target it sees itself at close range
+				if !(s.inViewCone(m, o.center()) && s.canSee(m, o.center(), o.top()) && d < HouseBystanderR) {
+					continue
+				}
+			}
+		} else if !h.vis {
 			// known only through the squad: only the closest few within hunt radius converge
 			if d > h.hunt {
 				continue
@@ -509,7 +565,12 @@ func (s *Sim) houseDecide(m *Mech) {
 			haveGoal = true
 			boost = bd > 120 && m.Energy > 50
 		}
-	} else if s.T-s.squadHeardT < 10 && s.squadHeard.HDist(m.Pos) > 10 && s.squadHeard.HDist(m.Pos) < h.hunt {
+	} else if HouseEscalate && s.hunters[m.ID] && s.squadLastOK && s.squadLast.HDist(m.Pos) > 12 {
+		// assigned hunter without a live sighting: go to the last place the squad saw the target
+		goal = s.squadLast
+		haveGoal = true
+		boost = s.squadLast.HDist(m.Pos) > 120 && m.Energy > 50
+	} else if s.T-s.squadHeardT < 10 && s.squadHeard.HDist(m.Pos) > 10 && s.squadHeard.HDist(m.Pos) < h.hunt && (!HouseEscalate || s.hunters[m.ID]) {
 		goal = s.squadHeard
 		haveGoal = true
 	} else {
