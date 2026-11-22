@@ -47,7 +47,7 @@ var P = map[string]float64{
 	"early_evade_n":   1,
 	"retreat_gun_m":   0,   // while retreating, only fire the gun at targets closer than this (0 = always)
 	"w_sound":         0,   // goal choice: avoid estimated positions of recent weapon sounds
-	"aim_mix":         0,   // lead for the gun during the first part of a laser charge
+	"aim_mix":         1,   // lead for the gun during the first part of a laser charge
 	"laser_seek_m":    0,   // travel this far for a known laser pickup while we have none (0 = normal loot range)
 	"laser_pre":       0,   // pre-charge the laser on a known enemy without line of sight
 	"laser_flee":      1,   // 1 = also charge the laser while retreating / racing the zone (half speed)
@@ -76,9 +76,10 @@ var P = map[string]float64{
 	"kite_zz":         0.3,  // lateral weave while kiting
 	"kite_boost_gap":  40,   // boost when an enemy is this far inside kite_m
 	"kite_los_w":      25,   // bonus for kite spots that keep a line of fire to the target
+	"farm_min_hp":     0,    // don't shoot crates / drones below this HP fraction (dealing damage blocks regen)
 	"lead_scale":      1,    // scale target velocity when leading gun shots
 	"laser_lethal":    1,    // release the laser early when the current charge already kills
-	"lit_standoff_m":  0,    // back away from hot lightning carriers closer than this (0 = off)
+	"lit_standoff_m":  60,   // back away from hot lightning carriers closer than this (0 = off)
 	"gate":            1,    // 1 = only fight mechs that are on us (hot-target gate)
 	"gate_hold_s":     8,    // a mech stays hot this long after hitting / aiming at us
 	"gate_aim":        0.22, // rad: its torso points at us within this

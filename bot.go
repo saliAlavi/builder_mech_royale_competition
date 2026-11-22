@@ -911,7 +911,7 @@ func (b *Bot) fight(act *Action, tgt *Track) {
 		}
 		tRad, tHalfH = 2.5*sc, 4.5*sc
 		have, los, isMech = true, tgt.LOS, true
-	} else if f := b.farmTarget(); f != nil && b.mode != "zone" && P["farm"] > 0 {
+	} else if f := b.farmTarget(); f != nil && b.mode != "zone" && P["farm"] > 0 && b.hpFrac() >= P["farm_min_hp"] {
 		aimPt = Vec3{f.pos[0], f.pos[1], f.pos[2] + f.aimZ}
 		vel = f.vel
 		tRad, tHalfH = 1.4, 1.2
